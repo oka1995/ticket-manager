@@ -1,0 +1,903 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ライブチケット管理</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#ffffff;--bg2:#f5f5f7;--bg3:#ebebed;
+  --text:#1c1c1e;--text2:#636366;--text3:#aeaeb2;
+  --border:#e5e5ea;--border2:#d1d1d6;
+  --blue:#185FA5;--green:#3B6D11;--amber:#854F0B;--red:#A32D2D;--purple:#534AB7;
+  --radius:10px;--radius-sm:7px;
+}
+body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-serif;background:var(--bg2);color:var(--text);font-size:14px;min-height:100vh}
+/* layout */
+.app{max-width:1100px;margin:0 auto;padding:1.25rem 1rem}
+.header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:1.25rem;gap:12px;flex-wrap:wrap}
+.header-left h1{font-size:20px;font-weight:600;color:var(--text)}
+.header-left p{font-size:12px;color:var(--text2);margin-top:2px}
+.header-btns{display:flex;gap:8px;flex-wrap:wrap}
+/* buttons */
+.btn{border-radius:var(--radius-sm);padding:0 14px;height:34px;font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;border:1px solid transparent;transition:opacity .15s}
+.btn-primary{background:var(--text);color:#fff}
+.btn-primary:hover{opacity:.82}
+.btn-secondary{background:var(--bg);color:var(--text);border-color:var(--border2)}
+.btn-secondary:hover{background:var(--bg2)}
+.btn-secondary.active{background:var(--bg3);border-color:var(--text3)}
+.btn-danger{background:transparent;color:var(--red);border-color:var(--red)}
+.btn-sm{height:28px;padding:0 10px;font-size:12px}
+/* tabs */
+.tab-bar{display:flex;border-bottom:1px solid var(--border);margin-bottom:1.25rem}
+.tab{padding:8px 16px;font-size:13px;cursor:pointer;color:var(--text2);border-bottom:2px solid transparent;margin-bottom:-1px}
+.tab.active{color:var(--text);font-weight:600;border-bottom-color:var(--text)}
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:1.25rem}
+.stat{background:var(--bg);border-radius:var(--radius);padding:.85rem 1rem;border:1px solid var(--border)}
+.stat-label{font-size:11px;color:var(--text2);margin-bottom:4px}
+.stat-value{font-size:24px;font-weight:600}
+/* event filter */
+.event-filter{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;margin-bottom:1.25rem}
+.event-filter-label{font-size:11px;font-weight:600;color:var(--text2);margin-bottom:8px;letter-spacing:.04em;text-transform:uppercase}
+.event-filter-row{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.fi label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
+.fi select,.fi input{width:100%}
+/* toolbar */
+.toolbar{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
+.toolbar input{flex:1;min-width:120px}
+.toolbar select{font-size:13px}
+.view-toggle{display:flex;gap:4px;margin-left:auto}
+/* form elements */
+input,select,textarea{font-family:inherit;font-size:13px;border:1px solid var(--border2);border-radius:var(--radius-sm);padding:0 10px;height:34px;background:var(--bg);color:var(--text);width:100%}
+input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px rgba(24,95,165,.12)}
+/* cards */
+.card{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);margin-bottom:8px;overflow:hidden;transition:opacity .2s}
+.card.transferred{opacity:.4;filter:grayscale(.55)}
+.card-header{display:flex;align-items:flex-start;gap:8px;padding:11px 14px;cursor:pointer}
+.card-header:hover{background:var(--bg2)}
+.ticket-num{font-size:11px;font-weight:600;color:var(--text3);min-width:24px;padding-top:2px;flex-shrink:0}
+.card-main{flex:1;min-width:0}
+.card-top{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+.card-title{font-size:13px;font-weight:600;color:var(--text)}
+.card-meta{font-size:11px;color:var(--text2);margin-top:3px}
+.chevron{font-size:9px;color:var(--text3);transition:transform .2s;flex-shrink:0;padding-top:3px;margin-left:4px}
+.chevron.open{transform:rotate(180deg)}
+.card-expand{padding:0 14px 13px;border-top:1px solid var(--border)}
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:11px}
+.detail-item label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
+.detail-item.full{grid-column:1/-1}
+.detail-actions{display:flex;gap:8px;margin-top:11px;justify-content:flex-end}
+/* payment inline */
+.pay-inline{display:flex;align-items:center;gap:6px;margin-top:4px;padding:5px 8px;background:var(--bg2);border-radius:var(--radius-sm);flex-wrap:wrap}
+.pay-inline label{font-size:11px;color:var(--text2);white-space:nowrap}
+.pay-link{font-size:11px;color:var(--blue);text-decoration:none}
+.pay-link:hover{text-decoration:underline}
+/* badges */
+.badge{display:inline-flex;align-items:center;padding:2px 7px;border-radius:100px;font-size:10px;font-weight:600;flex-shrink:0;white-space:nowrap}
+.b-申込前{background:#F1EFE8;color:#5F5E5A}
+.b-申込済{background:#E6F1FB;color:#185FA5}
+.b-落選{background:#FCEBEB;color:#A32D2D}
+.b-当選{background:#EAF3DE;color:#3B6D11}
+.b-支払前{background:#FAEEDA;color:#854F0B}
+.b-支払済{background:#E1F5EE;color:#0F6E56}
+.b-回収前{background:#FBEAF0;color:#993556}
+.b-回収済{background:#E1F5EE;color:#0F6E56}
+.b-譲渡前{background:#F1EFE8;color:#5F5E5A}
+.b-譲渡済{background:#D3D1C7;color:#444441}
+.b-group{background:#EEEDFE;color:#534AB7}
+.seat-badge{font-size:10px;color:var(--text2);background:var(--bg2);padding:2px 6px;border-radius:4px;border:1px solid var(--border);flex-shrink:0}
+.sns-link{color:var(--blue);text-decoration:none;font-size:11px}
+.sns-link:hover{text-decoration:underline}
+/* tree */
+.tree-event{margin-bottom:12px}
+.tree-event-hdr{display:flex;align-items:center;gap:8px;padding:9px 13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;margin-bottom:4px}
+.tree-event-hdr:hover{background:var(--bg2)}
+.tree-event-body{padding-left:10px}
+.tree-group{margin-bottom:5px}
+.tree-group-hdr{display:flex;align-items:center;gap:7px;padding:7px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer}
+.tree-group-hdr:hover{background:var(--bg2)}
+.tree-group-body{padding:6px 8px;border:1px solid var(--border);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);background:var(--bg);display:flex;flex-direction:column;gap:5px}
+.grp-ticket{border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 11px;cursor:pointer;transition:opacity .2s}
+.grp-ticket.transferred{opacity:.4;filter:grayscale(.55);background:var(--bg2)}
+.grp-ticket:not(.transferred){background:var(--bg)}
+.grp-ticket:not(.transferred):hover{background:var(--bg2)}
+/* dashboard */
+.dash-filter{display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap;align-items:flex-end}
+.dash-filter>div label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
+.dash-filter>div select{font-size:13px;width:180px}
+.dash-wrap{background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;margin-bottom:16px}
+.dash-section-hdr{padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);font-size:13px;font-weight:600}
+.dash-table{width:100%;border-collapse:collapse;font-size:13px}
+.dash-table th{font-size:11px;font-weight:600;color:var(--text2);text-align:left;padding:7px 12px;border-bottom:1px solid var(--border);white-space:nowrap;background:var(--bg2)}
+.dash-table td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
+.dash-table tr:last-child td{border-bottom:none}
+.dash-table tr:hover td{background:var(--bg2)}
+.dash-table tr.total-row td{background:var(--bg2);font-weight:600}
+.progress-bar{height:6px;border-radius:3px;background:var(--bg3);overflow:hidden;min-width:80px}
+.progress-fill{height:100%;border-radius:3px;background:#1D9E75}
+.progress-fill.warn{background:#BA7517}
+.progress-fill.danger{background:#E24B4A}
+.cpill{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;border-radius:100px;font-size:11px;font-weight:600;padding:0 6px}
+.cp-ok{background:#E1F5EE;color:#0F6E56}
+.cp-warn{background:#FAEEDA;color:#854F0B}
+.cp-none{background:#F1EFE8;color:#5F5E5A}
+/* modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200;display:flex;align-items:center;justify-content:center;padding:1rem}
+.modal{background:var(--bg);border-radius:var(--radius);padding:1.5rem;width:540px;max-width:100%;max-height:90vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.2)}
+.modal h2{font-size:16px;font-weight:600;margin-bottom:1.1rem}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.mi label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
+.mi.full{grid-column:1/-1}
+.msec{font-size:11px;font-weight:600;color:var(--text2);margin:12px 0 6px;letter-spacing:.04em;text-transform:uppercase;grid-column:1/-1;border-top:1px solid var(--border);padding-top:12px}
+.msec:first-child{border-top:none;margin-top:0;padding-top:0}
+.mactions{display:flex;gap:8px;margin-top:1.25rem;justify-content:flex-end}
+/* loading */
+.loading{display:flex;align-items:center;justify-content:center;gap:10px;padding:3rem;color:var(--text2);font-size:13px}
+.spinner{width:20px;height:20px;border:2px solid var(--border);border-top-color:var(--text);border-radius:50%;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.empty{text-align:center;padding:2.5rem;color:var(--text2);font-size:13px}
+.toast{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:10px 18px;border-radius:var(--radius);font-size:13px;z-index:999;opacity:0;transition:opacity .3s;pointer-events:none}
+.toast.show{opacity:1}
+@media(max-width:600px){
+  .stats{grid-template-columns:1fr 1fr}
+  .event-filter-row{grid-template-columns:1fr 1fr}
+  .mgrid{grid-template-columns:1fr}
+  .mi.full{grid-column:1}
+  .msec{grid-column:1}
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="header">
+    <div class="header-left">
+      <h1>ライブチケット管理</h1>
+      <p>チケット・連番グループ・譲渡・資金回収を一元管理</p>
+    </div>
+    <div class="header-btns">
+      <button class="btn btn-secondary" onclick="openPerfMgr()">公演管理</button>
+      <button class="btn btn-secondary" onclick="openAddGroup()">+ グループ</button>
+      <button class="btn btn-primary" onclick="openAdd()">+ チケット</button>
+    </div>
+  </div>
+
+  <div class="tab-bar">
+    <div class="tab active" id="tab-tickets" onclick="switchTab('tickets')">チケット一覧</div>
+    <div class="tab" id="tab-dashboard" onclick="switchTab('dashboard')">ダッシュボード</div>
+  </div>
+
+  <!-- TICKETS PANE -->
+  <div id="pane-tickets">
+    <div class="event-filter">
+      <div class="event-filter-label">イベントで絞り込む</div>
+      <div class="event-filter-row">
+        <div class="fi"><label>アーティスト名</label><select id="f-artist" onchange="renderTickets()"></select></div>
+        <div class="fi"><label>ツアー名</label><select id="f-tour" onchange="renderTickets()"></select></div>
+        <div class="fi"><label>開催地</label><select id="f-venue" onchange="renderTickets()"></select></div>
+        <div class="fi"><label>公演日</label><select id="f-perf" onchange="renderTickets()"></select></div>
+      </div>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div class="toolbar">
+      <input type="text" id="search" placeholder="名義・譲渡先で検索..." oninput="renderTickets()" />
+      <select id="flt-ticket" onchange="renderTickets()">
+        <option value="">チケット全て</option>
+        <option>申込前</option><option>申込済</option><option>落選</option>
+        <option>当選</option><option>支払前</option><option>支払済</option>
+      </select>
+      <select id="flt-fund" onchange="renderTickets()">
+        <option value="">資金全て</option><option>回収前</option><option>回収済</option>
+      </select>
+      <select id="flt-transfer" onchange="renderTickets()">
+        <option value="">譲渡全て</option><option>譲渡前</option><option>譲渡済</option>
+      </select>
+      <div class="view-toggle">
+        <button class="btn btn-secondary active" id="view-tree-btn" onclick="setView('tree')">ツリー</button>
+        <button class="btn btn-secondary" id="view-list-btn" onclick="setView('list')">一覧</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <!-- DASHBOARD PANE -->
+  <div id="pane-dashboard" style="display:none">
+    <div class="dash-filter">
+      <div><label>アーティスト名</label><select id="d-artist" onchange="renderDash()"></select></div>
+      <div><label>ツアー名</label><select id="d-tour" onchange="renderDash()"></select></div>
+    </div>
+    <div id="dash-body"></div>
+  </div>
+</div>
+
+<!-- Ticket Modal -->
+<div id="modal" style="display:none" class="modal-overlay">
+<div class="modal">
+  <h2 id="modal-title">新規チケット追加</h2>
+  <div class="mgrid">
+    <div class="full msec">公演・イベント情報</div>
+    <div class="mi full"><label>公演を選択</label><select id="m-perf"></select></div>
+    <div class="full msec">基本情報</div>
+    <div class="mi"><label>アカウント名義</label><input id="m-account" type="text" placeholder="山田 花子" /></div>
+    <div class="mi"><label>支払い者名義</label><input id="m-payer" type="text" placeholder="鈴木 一郎" /></div>
+    <div class="mi"><label>チケットステータス</label>
+      <select id="m-ts" onchange="togglePayWrap()">
+        <option>申込前</option><option>申込済</option><option>落選</option>
+        <option>当選</option><option>支払前</option><option>支払済</option>
+      </select>
+    </div>
+    <div class="mi"><label>資金回収ステータス</label>
+      <select id="m-fs"><option>回収前</option><option>回収済</option></select>
+    </div>
+    <div class="mi"><label>席番号 / 整理番号</label><input id="m-seat" type="text" placeholder="A-15 / No.042" /></div>
+    <div class="mi"><label>連番グループ（任意）</label><select id="m-group"></select></div>
+    <div id="m-pay-wrap" style="display:none;grid-column:1/-1">
+      <div class="msec">支払い情報</div>
+      <div class="mgrid">
+        <div class="mi"><label>支払い番号</label><input id="m-paynum" type="text" placeholder="PAY-12345" /></div>
+        <div class="mi"><label>支払いURL</label><input id="m-payurl" type="text" placeholder="https://..." /></div>
+      </div>
+    </div>
+    <div class="full msec">譲渡情報</div>
+    <div class="mi"><label>譲渡ステータス</label>
+      <select id="m-tr"><option>譲渡前</option><option>譲渡済</option></select>
+    </div>
+    <div class="mi"><label>譲渡先の名前</label><input id="m-to" type="text" placeholder="@user_name" /></div>
+    <div class="mi full"><label>SNS URL</label><input id="m-sns" type="text" placeholder="https://..." /></div>
+    <div class="mi full"><label>メモ</label><input id="m-memo" type="text" placeholder="任意のメモ" /></div>
+  </div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closeModal()">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveModal()">保存</button>
+  </div>
+</div>
+</div>
+
+<!-- Group Modal -->
+<div id="gmodal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:400px">
+  <h2 id="gm-title">連番グループ作成</h2>
+  <div style="display:flex;flex-direction:column;gap:10px">
+    <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">グループ名</label>
+      <input id="gm-name" type="text" placeholder="東京1日目 A連番" /></div>
+    <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">紐付ける公演</label>
+      <select id="gm-perf"></select></div>
+    <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">メモ</label>
+      <input id="gm-memo" type="text" placeholder="任意" /></div>
+  </div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closeGModal()">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveGroup()">作成</button>
+  </div>
+</div>
+</div>
+
+<!-- Perf Modal -->
+<div id="pmodal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:680px">
+  <h2>公演管理</h2>
+  <div style="margin-bottom:10px">
+    <button class="btn btn-primary btn-sm" onclick="addPerfRow()">+ 公演を追加</button>
+  </div>
+  <div id="perf-list" style="display:flex;flex-direction:column;gap:6px"></div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closePModal()">閉じる</button>
+    <button class="btn btn-primary" onclick="savePerfs()">保存</button>
+  </div>
+</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxur5BxgdDW7IB3k333xFLt71mni6qHO_bKI-V1p4Vo6nzAclgstjxeIUO6WK-k6jw/exec";
+const PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+
+let perfs=[], groups=[], tickets=[];
+let editId=null, editGId=null, viewMode='tree', currentTab='tickets';
+let expanded={}, gExpanded={}, eExpanded={};
+let perfEdits=[];
+let saving=false;
+
+// ---- API ----
+async function apiRead(sheet){
+  const res = await fetch(`${GAS_URL}?action=read&sheet=${encodeURIComponent(sheet)}`);
+  const json = await res.json();
+  if(!json.ok) throw new Error(json.error);
+  const [header, ...rows] = json.data;
+  return rows.map(r => {
+    const obj={};
+    header.forEach((h,i) => obj[h]=r[i]??'');
+    return obj;
+  });
+}
+
+async function apiAppend(sheet, row){
+  const res = await fetch(GAS_URL, {method:'POST', body: JSON.stringify({action:'append', sheet, values:row})});
+  return res.json();
+}
+
+async function apiUpdate(sheet, rowIndex, row){
+  const res = await fetch(GAS_URL, {method:'POST', body: JSON.stringify({action:'update', sheet, rowIndex, values:row})});
+  return res.json();
+}
+
+async function apiDelete(sheet, rowIndex){
+  const res = await fetch(GAS_URL, {method:'POST', body: JSON.stringify({action:'delete', sheet, rowIndex})});
+  return res.json();
+}
+
+// ---- Load ----
+async function loadAll(){
+  showLoading();
+  try {
+    [perfs, groups, tickets] = await Promise.all([
+      apiRead('公演'), apiRead('連番グループ'), apiRead('チケット')
+    ]);
+  } catch(e){
+    document.getElementById('list').innerHTML = `<div class="empty">データの読み込みに失敗しました。<br>${e.message}</div>`;
+  }
+  buildFilterSelects();
+  renderTickets();
+  hideLoading();
+}
+
+function showLoading(){
+  document.getElementById('list').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中...</div>';
+}
+function hideLoading(){}
+
+function toast(msg){
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'), 2200);
+}
+
+// ---- Header rows for sheets ----
+const PERF_HEADERS  = ['公演ID','アーティスト名','ツアー名','開催地（都道府県）','公演日テキスト\n（例: 20260417(金)）','表示ラベル\n（例: 東京1日目 4/17(金)）'];
+const GROUP_HEADERS = ['グループID','グループ名','紐付け公演ID','レシート管理No\n（発券情報管理より）','メモ'];
+const TICKET_HEADERS= ['チケットID','公演ID','連番グループID','公演内\n通し番号','レシート管理No\n（単番のみ）','アカウント名義','支払い者名義','チケットステータス','資金回収ステータス','譲渡ステータス','席番号/整理番号','支払い番号','支払いURL','譲渡先の名前','SNSプロフィールURL','メモ'];
+
+function perfToRow(p){ return PERF_HEADERS.map(h=>p[h]??''); }
+function groupToRow(g){ return GROUP_HEADERS.map(h=>g[h]??''); }
+function ticketToRow(t){ return TICKET_HEADERS.map(h=>t[h]??''); }
+
+// ---- Selects ----
+function buildFilterSelects(){
+  const artists=[...new Set(perfs.map(p=>p['アーティスト名']).filter(Boolean))];
+  const tours=[...new Set(perfs.map(p=>p['ツアー名']).filter(Boolean))];
+  const venues=[...new Set(perfs.map(p=>p['開催地（都道府県）']).filter(Boolean))];
+
+  function rebuild(id,vals){
+    const s=document.getElementById(id);
+    const prev=s.value;
+    s.innerHTML='<option value="">すべて</option>';
+    vals.forEach(v=>{const o=document.createElement('option');o.value=v;o.textContent=v;if(v===prev)o.selected=true;s.appendChild(o);});
+  }
+  rebuild('f-artist',artists); rebuild('f-tour',tours); rebuild('f-venue',venues);
+
+  const fa=document.getElementById('f-artist').value;
+  const ft=document.getElementById('f-tour').value;
+  const fv=document.getElementById('f-venue').value;
+  const fp=document.getElementById('f-perf');
+  const prevP=fp.value;
+  fp.innerHTML='<option value="">すべて</option>';
+  perfs.filter(p=>(!fa||p['アーティスト名']===fa)&&(!ft||p['ツアー名']===ft)&&(!fv||p['開催地（都道府県）']===fv))
+    .forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=p['表示ラベル\n（例: 東京1日目 4/17(金)）'];if(p['公演ID']===prevP)o.selected=true;fp.appendChild(o);});
+
+  rebuild('d-artist',artists); rebuild('d-tour',tours);
+}
+
+function perfSelectOpts(selId, cur){
+  const s=document.getElementById(selId);
+  s.innerHTML='<option value="">― 公演を選択 ―</option>';
+  perfs.forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=`${p['アーティスト名']} / ${p['ツアー名']} / ${p['表示ラベル\n（例: 東京1日目 4/17(金)）']}`;if(p['公演ID']===cur)o.selected=true;s.appendChild(o);});
+}
+
+function groupSelectOpts(selId, perfId, cur){
+  const s=document.getElementById(selId);
+  s.innerHTML='<option value="">グループなし</option>';
+  groups.filter(g=>!perfId||g['紐付け公演ID']===perfId)
+    .forEach(g=>{const o=document.createElement('option');o.value=g['グループID'];o.textContent=g['グループ名'];if(g['グループID']===cur)o.selected=true;s.appendChild(o);});
+}
+
+// ---- Tab ----
+function switchTab(t){
+  currentTab=t;
+  document.getElementById('pane-tickets').style.display=t==='tickets'?'':'none';
+  document.getElementById('pane-dashboard').style.display=t==='dashboard'?'':'none';
+  document.getElementById('tab-tickets').classList.toggle('active',t==='tickets');
+  document.getElementById('tab-dashboard').classList.toggle('active',t==='dashboard');
+  if(t==='dashboard'){buildFilterSelects();renderDash();}
+}
+
+function setView(v){
+  viewMode=v;
+  document.getElementById('view-tree-btn').classList.toggle('active',v==='tree');
+  document.getElementById('view-list-btn').classList.toggle('active',v==='list');
+  renderTickets();
+}
+
+// ---- Helpers ----
+function getPerf(id){ return perfs.find(p=>p['公演ID']===id)||{}; }
+function getGroup(id){ return groups.find(g=>g['グループID']===id)||null; }
+function perfLabel(id){ const p=getPerf(id); return p['表示ラベル\n（例: 東京1日目 4/17(金)）']||id; }
+
+function payHtml(t){
+  if(t['チケットステータス']!=='支払前') return '';
+  const num=t['支払い番号'], url=t['支払いURL'];
+  return `<div class="pay-inline"><label>支払い:</label>
+    ${num?`<span style="font-size:11px">${num}</span>`:''}
+    ${url?`<a class="pay-link" href="${url}" target="_blank">${url.length>30?url.slice(0,30)+'…':url}</a>`:''}
+    ${!num&&!url?`<span style="font-size:11px;color:var(--text3)">未設定</span>`:''}
+  </div>`;
+}
+
+function toHtml(t){
+  const name=t['譲渡先の名前'], url=t['SNSプロフィールURL'];
+  if(url) return `<a class="sns-link" href="${url}" target="_blank">${name||'SNS'}</a>`;
+  return name||'未設定';
+}
+
+// ---- Inline expand form ----
+function expandForm(t, nested){
+  const ep=t['チケットステータス']==='支払前';
+  const grpOpts=groups.filter(g=>!t['公演ID']||g['紐付け公演ID']===t['公演ID'])
+    .map(g=>`<option value="${g['グループID']}" ${t['連番グループID']===g['グループID']?'selected':''}>${g['グループ名']}</option>`).join('');
+  return `<div class="detail-grid">
+    <div class="detail-item"><label>アカウント名義</label><input type="text" id="ei-account-${t._row}" value="${t['アカウント名義']}" /></div>
+    <div class="detail-item"><label>支払い者名義</label><input type="text" id="ei-payer-${t._row}" value="${t['支払い者名義']}" /></div>
+    <div class="detail-item"><label>譲渡先の名前</label><input type="text" id="ei-to-${t._row}" value="${t['譲渡先の名前']}" /></div>
+    <div class="detail-item"><label>SNS URL</label><input type="text" id="ei-sns-${t._row}" value="${t['SNSプロフィールURL']}" /></div>
+    <div class="detail-item"><label>席番号</label><input type="text" id="ei-seat-${t._row}" value="${t['席番号/整理番号']}" /></div>
+    <div class="detail-item"><label>チケットステータス</label>
+      <select id="ei-ts-${t._row}" onchange="toggleInlinePay(${t._row})">
+        ${['申込前','申込済','落選','当選','支払前','支払済'].map(s=>`<option ${t['チケットステータス']===s?'selected':''}>${s}</option>`).join('')}
+      </select></div>
+    <div class="detail-item"><label>資金回収</label>
+      <select id="ei-fs-${t._row}">${['回収前','回収済'].map(s=>`<option ${t['資金回収ステータス']===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="detail-item"><label>譲渡ステータス</label>
+      <select id="ei-tr-${t._row}">${['譲渡前','譲渡済'].map(s=>`<option ${t['譲渡ステータス']===s?'selected':''}>${s}</option>`).join('')}</select></div>
+    <div class="detail-item full" id="ei-pay-${t._row}" style="${ep?'':'display:none'}">
+      <label>支払い番号</label><input type="text" id="ei-paynum-${t._row}" value="${t['支払い番号']}" placeholder="PAY-XXXXX" style="margin-bottom:6px" />
+      <label>支払いURL</label><input type="text" id="ei-payurl-${t._row}" value="${t['支払いURL']}" placeholder="https://..." />
+    </div>
+    ${!nested?`<div class="detail-item full"><label>グループ</label>
+      <select id="ei-grp-${t._row}"><option value="">グループなし</option>${grpOpts}</select></div>`:''}
+    <div class="detail-item full"><label>メモ</label><input type="text" id="ei-memo-${t._row}" value="${t['メモ']}" /></div>
+  </div>
+  <div class="detail-actions">
+    <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTicket(${t._row})">削除</button>
+    <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();saveInline(${t._row})">保存</button>
+  </div>`;
+}
+
+function toggleInlinePay(row){
+  const s=document.getElementById('ei-ts-'+row);
+  const r=document.getElementById('ei-pay-'+row);
+  if(s&&r) r.style.display=s.value==='支払前'?'block':'none';
+}
+
+// ---- Ticket card ----
+function ticketCard(t, num, nested){
+  const tr=t['譲渡ステータス']==='譲渡済';
+  const isPaid=t['チケットステータス']==='支払済';
+  const key=nested?'n'+t._row:t._row;
+  const isExp=expanded[key];
+
+  const topHtml=`
+    <div class="card-top">
+      <span class="ticket-num">#${num}</span>
+      ${!isPaid?`<span class="card-title">${t['アカウント名義']}</span>`:''}
+      <span class="badge b-${t['チケットステータス']}">${t['チケットステータス']}</span>
+      <span class="badge b-${t['資金回収ステータス']}">${t['資金回収ステータス']}</span>
+      <span class="badge b-${t['譲渡ステータス']}">${t['譲渡ステータス']}</span>
+      ${t['席番号/整理番号']?`<span class="seat-badge">${t['席番号/整理番号']}</span>`:''}
+      <span class="chevron ${isExp?'open':''}" style="margin-left:auto">▼</span>
+    </div>
+    <div class="card-meta">譲渡先: ${toHtml(t)}${!isPaid&&t['支払い者名義']!==t['アカウント名義']?` ・支払: ${t['支払い者名義']}`:''}${t['メモ']?` ・${t['メモ']}`:''}</div>
+    ${payHtml(t)}`;
+
+  if(nested){
+    return `<div class="grp-ticket${tr?' transferred':''}" onclick="toggleExp('n${t._row}')">
+      ${topHtml}
+      ${isExp?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">${expandForm(t,true)}</div>`:''}
+    </div>`;
+  }
+
+  const grp=t['連番グループID']?getGroup(t['連番グループID']):null;
+  return `<div class="card${tr?' transferred':''}">
+    <div class="card-header" onclick="toggleExp(${t._row})">
+      <div class="card-main">
+        ${topHtml}
+        ${grp?`<div style="margin-top:3px"><span class="badge b-group">🔗 ${grp['グループ名']}</span></div>`:''}
+      </div>
+    </div>
+    ${isExp?`<div class="card-expand">${expandForm(t,false)}</div>`:''}
+  </div>`;
+}
+
+// ---- Render tickets ----
+function renderTickets(){
+  buildFilterSelects();
+  const search=document.getElementById('search').value.toLowerCase();
+  const ft=document.getElementById('flt-ticket').value;
+  const ff=document.getElementById('flt-fund').value;
+  const ftr=document.getElementById('flt-transfer').value;
+  const fa=document.getElementById('f-artist').value;
+  const ftour=document.getElementById('f-tour').value;
+  const fv=document.getElementById('f-venue').value;
+  const fp=document.getElementById('f-perf').value;
+
+  const filtered=tickets.filter(t=>{
+    if(search&&!t['アカウント名義'].toLowerCase().includes(search)&&!(t['譲渡先の名前']||'').toLowerCase().includes(search))return false;
+    if(ft&&t['チケットステータス']!==ft)return false;
+    if(ff&&t['資金回収ステータス']!==ff)return false;
+    if(ftr&&t['譲渡ステータス']!==ftr)return false;
+    const p=getPerf(t['公演ID']);
+    if(fa&&p['アーティスト名']!==fa)return false;
+    if(ftour&&p['ツアー名']!==ftour)return false;
+    if(fv&&p['開催地（都道府県）']!==fv)return false;
+    if(fp&&t['公演ID']!==fp)return false;
+    return true;
+  });
+
+  const total=tickets.length;
+  const won=tickets.filter(t=>['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
+  const paid=tickets.filter(t=>t['チケットステータス']==='支払済').length;
+  const col=tickets.filter(t=>t['資金回収ステータス']==='回収済').length;
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><div class="stat-label">総チケット数</div><div class="stat-value">${total}</div></div>
+    <div class="stat"><div class="stat-label">当選済み</div><div class="stat-value">${won}</div></div>
+    <div class="stat"><div class="stat-label">支払済み</div><div class="stat-value">${paid}</div></div>
+    <div class="stat"><div class="stat-label">資金回収済み</div><div class="stat-value">${col}</div></div>`;
+
+  const list=document.getElementById('list');
+  if(!tickets.length){list.innerHTML='<div class="loading"><div class="spinner"></div>読み込み中...</div>';return;}
+  if(!filtered.length){list.innerHTML='<div class="empty">該当するチケットがありません</div>';return;}
+
+  // per-perf seq numbers
+  const numMap={};
+  const pseq={};
+  tickets.forEach(t=>{
+    if(!pseq[t['公演ID']])pseq[t['公演ID']]=0;
+    pseq[t['公演ID']]++;
+    numMap[t._row]=pseq[t['公演ID']];
+  });
+
+  if(viewMode==='list'){
+    list.innerHTML=filtered.map(t=>ticketCard(t,numMap[t._row],false)).join('');
+    return;
+  }
+
+  // tree view
+  let html='';
+  const perfIds=[...new Set(filtered.map(t=>t['公演ID']))];
+  const sortedPerfs=perfs.filter(p=>perfIds.includes(p['公演ID']))
+    .sort((a,b)=>a['公演日テキスト\n（例: 20260417(金)）'].localeCompare(b['公演日テキスト\n（例: 20260417(金)）']));
+
+  sortedPerfs.forEach(perf=>{
+    const pid=perf['公演ID'];
+    const pt=filtered.filter(t=>t['公演ID']===pid);
+    const isOpen=eExpanded[pid]!==false;
+    const statuses=[...new Set(pt.map(t=>t['チケットステータス']))];
+    html+=`<div class="tree-event">
+      <div class="tree-event-hdr" onclick="toggleEv('${pid}')">
+        <span>🎵</span>
+        <span style="font-size:13px;font-weight:600">${perf['アーティスト名']} / ${perf['ツアー名']}</span>
+        <span style="font-size:12px;color:var(--text2)">${perf['表示ラベル\n（例: 東京1日目 4/17(金)）']}</span>
+        <span style="font-size:12px;color:var(--text3)">${pt.length}枚</span>
+        ${statuses.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
+        <span class="chevron ${isOpen?'open':''}" style="margin-left:auto">▼</span>
+      </div>`;
+    if(isOpen){
+      html+=`<div class="tree-event-body">`;
+      const usedRows=new Set();
+      groups.filter(g=>g['紐付け公演ID']===pid).forEach(grp=>{
+        const gid=grp['グループID'];
+        const gt=pt.filter(t=>t['連番グループID']===gid);
+        if(!gt.length)return;
+        gt.forEach(t=>usedRows.add(t._row));
+        const isGOpen=gExpanded[gid]!==false;
+        const gs=[...new Set(gt.map(t=>t['チケットステータス']))];
+        const gf=[...new Set(gt.map(t=>t['資金回収ステータス']))];
+        const gtr=[...new Set(gt.map(t=>t['譲渡ステータス']))];
+        html+=`<div class="tree-group">
+          <div class="tree-group-hdr" onclick="toggleGrp('${gid}')">
+            <span style="color:var(--purple)">🔗</span>
+            <span style="font-size:13px;font-weight:600">${grp['グループ名']}</span>
+            <span style="font-size:12px;color:var(--text3)">${gt.length}枚</span>
+            ${gs.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
+            ${gf.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
+            ${gtr.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
+            <span class="chevron ${isGOpen?'open':''}" style="margin-left:auto">▼</span>
+          </div>
+          ${isGOpen?`<div class="tree-group-body">${gt.map(t=>ticketCard(t,numMap[t._row],true)).join('')}</div>`:''}
+        </div>`;
+      });
+      pt.filter(t=>!usedRows.has(t._row)).forEach(t=>{html+=ticketCard(t,numMap[t._row],false);});
+      html+=`</div>`;
+    }
+    html+=`</div>`;
+  });
+  list.innerHTML=html||'<div class="empty">該当するチケットがありません</div>';
+}
+
+// ---- Dashboard ----
+function renderDash(){
+  buildFilterSelects();
+  const da=document.getElementById('d-artist').value;
+  const dt=document.getElementById('d-tour').value;
+  const fp=perfs.filter(p=>(!da||p['アーティスト名']===da)&&(!dt||p['ツアー名']===dt))
+    .sort((a,b)=>a['公演日テキスト\n（例: 20260417(金)）'].localeCompare(b['公演日テキスト\n（例: 20260417(金)）']));
+  if(!fp.length){document.getElementById('dash-body').innerHTML='<div class="empty">公演が見つかりません</div>';return;}
+
+  const tourMap={};
+  fp.forEach(p=>{
+    const k=`${p['アーティスト名']}__${p['ツアー名']}`;
+    if(!tourMap[k])tourMap[k]={artist:p['アーティスト名'],tour:p['ツアー名'],perfs:[]};
+    tourMap[k].perfs.push(p);
+  });
+
+  let html='';
+  Object.values(tourMap).forEach(tm=>{
+    html+=`<div class="dash-wrap">
+      <div class="dash-section-hdr">${tm.artist} — ${tm.tour}</div>
+      <table class="dash-table">
+        <thead><tr>
+          <th>公演</th><th>開催地</th>
+          <th style="text-align:center">総数</th>
+          <th style="text-align:center">当選</th>
+          <th style="text-align:center">譲渡済</th>
+          <th style="text-align:center">未定</th>
+          <th style="min-width:110px">進捗</th>
+        </tr></thead><tbody>`;
+    let tT=0,tW=0,tD=0,tP=0;
+    tm.perfs.forEach(p=>{
+      const pt=tickets.filter(t=>t['公演ID']===p['公演ID']);
+      const total=pt.length;
+      const won=pt.filter(t=>['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
+      const done=pt.filter(t=>t['譲渡ステータス']==='譲渡済').length;
+      const pending=pt.filter(t=>t['譲渡ステータス']==='譲渡前'&&['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
+      tT+=total;tW+=won;tD+=done;tP+=pending;
+      const pct=won>0?Math.round(done/won*100):0;
+      const fc=pct>=100?'':pct>=60?'warn':'danger';
+      html+=`<tr>
+        <td><strong>${p['表示ラベル\n（例: 東京1日目 4/17(金)）']}</strong></td>
+        <td>${p['開催地（都道府県）']}</td>
+        <td style="text-align:center"><span class="cpill cp-none">${total}</span></td>
+        <td style="text-align:center"><span class="cpill cp-ok">${won}</span></td>
+        <td style="text-align:center"><span class="cpill cp-ok">${done}</span></td>
+        <td style="text-align:center"><span class="cpill ${pending>0?'cp-warn':'cp-none'}">${pending}</span></td>
+        <td><div style="display:flex;align-items:center;gap:6px">
+          <div class="progress-bar" style="flex:1"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div>
+          <span style="font-size:11px;color:var(--text2);min-width:32px">${pct}%</span>
+        </div></td>
+      </tr>`;
+    });
+    const tpct=tW>0?Math.round(tD/tW*100):0;
+    html+=`<tr class="total-row">
+      <td colspan="2">ツアー合計</td>
+      <td style="text-align:center">${tT}</td><td style="text-align:center">${tW}</td>
+      <td style="text-align:center">${tD}</td>
+      <td style="text-align:center"><span class="cpill ${tP>0?'cp-warn':'cp-none'}">${tP}</span></td>
+      <td><div style="display:flex;align-items:center;gap:6px">
+        <div class="progress-bar" style="flex:1"><div class="progress-fill" style="width:${tpct}%"></div></div>
+        <span style="font-size:11px;color:var(--text2)">${tpct}%</span>
+      </div></td>
+    </tr></tbody></table></div>`;
+  });
+  document.getElementById('dash-body').innerHTML=html;
+}
+
+// ---- Toggles ----
+function toggleExp(key){expanded[key]=!expanded[key];renderTickets();}
+function toggleGrp(id){gExpanded[id]=gExpanded[id]===false?true:false;renderTickets();}
+function toggleEv(id){eExpanded[id]=eExpanded[id]===false?true:false;renderTickets();}
+
+// ---- Add ticket modal ----
+function togglePayWrap(){
+  document.getElementById('m-pay-wrap').style.display=
+    document.getElementById('m-ts').value==='支払前'?'block':'none';
+}
+
+function openAdd(){
+  editId=null;
+  document.getElementById('modal-title').textContent='新規チケット追加';
+  ['m-account','m-payer','m-to','m-sns','m-seat','m-memo','m-paynum','m-payurl'].forEach(i=>document.getElementById(i).value='');
+  document.getElementById('m-ts').value='申込前';
+  document.getElementById('m-fs').value='回収前';
+  document.getElementById('m-tr').value='譲渡前';
+  document.getElementById('m-pay-wrap').style.display='none';
+  perfSelectOpts('m-perf','');
+  groupSelectOpts('m-group','','');
+  document.getElementById('modal').style.display='flex';
+}
+
+function closeModal(){document.getElementById('modal').style.display='none';}
+
+async function saveModal(){
+  if(saving)return; saving=true;
+  const ts=document.getElementById('m-ts').value;
+  const pid=document.getElementById('m-perf').value;
+  const obj={
+    'チケットID': editId||'t'+Date.now(),
+    '公演ID':pid,
+    '連番グループID':document.getElementById('m-group').value,
+    '公演内\n通し番号':'',
+    'レシート管理No\n（単番のみ）':'',
+    'アカウント名義':document.getElementById('m-account').value.trim(),
+    '支払い者名義':document.getElementById('m-payer').value.trim(),
+    'チケットステータス':ts,
+    '資金回収ステータス':document.getElementById('m-fs').value,
+    '譲渡ステータス':document.getElementById('m-tr').value,
+    '席番号/整理番号':document.getElementById('m-seat').value.trim(),
+    '支払い番号':ts==='支払前'?document.getElementById('m-paynum').value.trim():'',
+    '支払いURL':ts==='支払前'?document.getElementById('m-payurl').value.trim():'',
+    '譲渡先の名前':document.getElementById('m-to').value.trim(),
+    'SNSプロフィールURL':document.getElementById('m-sns').value.trim(),
+    'メモ':document.getElementById('m-memo').value.trim(),
+  };
+  if(!obj['アカウント名義']){alert('アカウント名義を入力してください');saving=false;return;}
+  const row=ticketToRow(obj);
+  if(editId){
+    const t=tickets.find(t=>t['チケットID']===editId);
+    await apiUpdate('チケット', t._row, row);
+  } else {
+    await apiAppend('チケット', row);
+  }
+  closeModal();
+  await loadAll();
+  toast(editId?'チケットを更新しました':'チケットを追加しました');
+  saving=false;
+}
+
+async function saveInline(rowIdx){
+  if(saving)return; saving=true;
+  const t=tickets.find(x=>x._row===rowIdx);
+  const ts=document.getElementById('ei-ts-'+rowIdx).value;
+  const grpEl=document.getElementById('ei-grp-'+rowIdx);
+  const obj={...t,
+    'アカウント名義':document.getElementById('ei-account-'+rowIdx).value.trim(),
+    '支払い者名義':document.getElementById('ei-payer-'+rowIdx).value.trim(),
+    '譲渡先の名前':document.getElementById('ei-to-'+rowIdx).value.trim(),
+    'SNSプロフィールURL':document.getElementById('ei-sns-'+rowIdx).value.trim(),
+    '席番号/整理番号':document.getElementById('ei-seat-'+rowIdx).value.trim(),
+    'チケットステータス':ts,
+    '資金回収ステータス':document.getElementById('ei-fs-'+rowIdx).value,
+    '譲渡ステータス':document.getElementById('ei-tr-'+rowIdx).value,
+    '支払い番号':ts==='支払前'?(document.getElementById('ei-paynum-'+rowIdx)||{value:''}).value.trim():'',
+    '支払いURL':ts==='支払前'?(document.getElementById('ei-payurl-'+rowIdx)||{value:''}).value.trim():'',
+    '連番グループID':grpEl?grpEl.value:t['連番グループID'],
+    'メモ':document.getElementById('ei-memo-'+rowIdx).value.trim(),
+  };
+  await apiUpdate('チケット', rowIdx, ticketToRow(obj));
+  await loadAll();
+  toast('保存しました');
+  saving=false;
+}
+
+async function deleteTicket(rowIdx){
+  if(!confirm('このチケットを削除しますか？'))return;
+  await apiDelete('チケット', rowIdx);
+  await loadAll();
+  toast('削除しました');
+}
+
+// ---- Group modal ----
+function openAddGroup(){
+  editGId=null;
+  document.getElementById('gm-title').textContent='連番グループ作成';
+  document.getElementById('gm-name').value='';
+  document.getElementById('gm-memo').value='';
+  perfSelectOpts('gm-perf','');
+  document.getElementById('gmodal').style.display='flex';
+}
+function closeGModal(){document.getElementById('gmodal').style.display='none';}
+async function saveGroup(){
+  if(saving)return; saving=true;
+  const name=document.getElementById('gm-name').value.trim();
+  if(!name){alert('グループ名を入力してください');saving=false;return;}
+  const obj={
+    'グループID':editGId||'g'+Date.now(),
+    'グループ名':name,
+    '紐付け公演ID':document.getElementById('gm-perf').value,
+    'レシート管理No\n（発券情報管理より）':'',
+    'メモ':document.getElementById('gm-memo').value.trim(),
+  };
+  const row=groupToRow(obj);
+  if(editGId){
+    const g=groups.find(g=>g['グループID']===editGId);
+    await apiUpdate('連番グループ', g._row, row);
+  } else {
+    await apiAppend('連番グループ', row);
+  }
+  closeGModal();
+  await loadAll();
+  toast(editGId?'グループを更新しました':'グループを作成しました');
+  saving=false;
+}
+
+// ---- Perf modal ----
+function openPerfMgr(){
+  perfEdits=perfs.map(p=>({...p}));
+  renderPerfList();
+  document.getElementById('pmodal').style.display='flex';
+}
+function closePModal(){document.getElementById('pmodal').style.display='none';}
+function renderPerfList(){
+  const el=document.getElementById('perf-list');
+  if(!perfEdits.length){el.innerHTML='<div class="empty">公演がありません</div>';return;}
+  el.innerHTML=perfEdits.map((p,i)=>`
+  <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;padding:8px;background:var(--bg2);border-radius:var(--radius-sm)">
+    <input type="text" placeholder="アーティスト名" value="${p['アーティスト名']||''}" id="pe-artist-${i}" style="max-width:100px" />
+    <input type="text" placeholder="ツアー名" value="${p['ツアー名']||''}" id="pe-tour-${i}" style="max-width:110px" />
+    <select id="pe-venue-${i}" style="max-width:100px">${PREFS.map(pr=>`<option ${p['開催地（都道府県）']===pr?'selected':''}>${pr}</option>`).join('')}</select>
+    <input type="text" placeholder="公演日テキスト 例:20260417(金)" value="${p['公演日テキスト\n（例: 20260417(金)）']||''}" id="pe-date-${i}" style="max-width:160px" />
+    <input type="text" placeholder="表示ラベル 例:東京1日目 4/17(金)" value="${p['表示ラベル\n（例: 東京1日目 4/17(金)）']||''}" id="pe-label-${i}" style="min-width:160px;flex:1" />
+    <button class="btn btn-danger btn-sm" onclick="removePerfRow(${i})">削除</button>
+  </div>`).join('');
+}
+function addPerfRow(){
+  perfEdits.push({'公演ID':'p'+Date.now(),'アーティスト名':'','ツアー名':'','開催地（都道府県）':'東京都','公演日テキスト\n（例: 20260417(金)）':'','表示ラベル\n（例: 東京1日目 4/17(金)）':''});
+  renderPerfList();
+}
+function removePerfRow(i){perfEdits.splice(i,1);renderPerfList();}
+async function savePerfs(){
+  if(saving)return; saving=true;
+  perfEdits.forEach((p,i)=>{
+    p['アーティスト名']=document.getElementById('pe-artist-'+i).value.trim();
+    p['ツアー名']=document.getElementById('pe-tour-'+i).value.trim();
+    p['開催地（都道府県）']=document.getElementById('pe-venue-'+i).value;
+    p['公演日テキスト\n（例: 20260417(金)）']=document.getElementById('pe-date-'+i).value.trim();
+    p['表示ラベル\n（例: 東京1日目 4/17(金)）']=document.getElementById('pe-label-'+i).value.trim();
+  });
+  const valid=perfEdits.filter(p=>p['表示ラベル\n（例: 東京1日目 4/17(金)）']);
+  // rebuild sheet: delete existing rows from bottom, then append
+  for(let i=perfs.length;i>=1;i--){
+    await apiDelete('公演', perfs[i-1]._row);
+  }
+  for(const p of valid){
+    await apiAppend('公演', perfToRow(p));
+  }
+  closePModal();
+  await loadAll();
+  toast('公演を保存しました');
+  saving=false;
+}
+
+// attach _row index to each record after load
+const _origLoad = loadAll;
+// patch apiRead to attach _row
+const _origApiRead = apiRead;
+window.apiRead = async function(sheet){
+  const res = await fetch(`${GAS_URL}?action=read&sheet=${encodeURIComponent(sheet)}`);
+  const json = await res.json();
+  if(!json.ok) throw new Error(json.error);
+  const [header, ...rows] = json.data;
+  return rows.map((r,i) => {
+    const obj={_row: i+2}; // 1-indexed, row 1 is header
+    header.forEach((h,j) => obj[h]=r[j]??'');
+    return obj;
+  });
+};
+
+// ---- Init ----
+(async()=>{
+  showLoading();
+  try{
+    [perfs,groups,tickets]=await Promise.all([
+      window.apiRead('公演'),window.apiRead('連番グループ'),window.apiRead('チケット')
+    ]);
+  }catch(e){
+    document.getElementById('list').innerHTML=`<div class="empty">データの読み込みに失敗しました。<br>${e.message}</div>`;
+    return;
+  }
+  buildFilterSelects();
+  renderTickets();
+})();
+</script>
+</body>
+</html>
