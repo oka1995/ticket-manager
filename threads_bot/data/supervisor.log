@@ -1,0 +1,6 @@
+2026-03-20 02:44:29,353 [SUPERVISOR] INFO === Writer Started ===
+2026-03-20 02:44:29,354 [SUPERVISOR] WARNING anthropic module not installed. Using template generation.
+2026-03-20 02:44:29,354 [SUPERVISOR] WARNING anthropic module not installed. Using template generation.
+2026-03-20 02:44:29,355 [SUPERVISOR] WARNING anthropic module not installed. Using template generation.
+2026-03-20 02:44:29,355 [SUPERVISOR] INFO Generated: 3, Rejected: 0. Queue size: 3
+2026-03-20 02:44:29,355 [SUPERVISOR] INFO === Writer Completed ===

@@ -1,0 +1,59 @@
+[
+  {
+    "id": "P20260320024429_00",
+    "content": "スマホ1台で稼ぐって聞いてどう思う？\n\nスキマ時間活用について、自分の経験をもとに話すね。\n\n副業3ヶ月で月5万達成した方法を、ステップ別に解説するよ。\n\n気になった人はコメントして！",
+    "theme": "時間の作り方/スキマ時間活用",
+    "pattern_id": "P11",
+    "pattern_name": "タイムライン型",
+    "is_affiliate": false,
+    "scores": {
+      "hook": 8.0,
+      "usefulness": 8.0,
+      "specificity": 8.0,
+      "tempo": 7.0,
+      "persona": 5.0,
+      "average": 7.2
+    },
+    "created_at": "2026-03-20T02:44:29.354758",
+    "scheduled_at": null,
+    "status": "queued"
+  },
+  {
+    "id": "P20260320024429_01",
+    "content": "副業コンサルに50万払って分かったこと\n\n実は自分も騙されかけた経験があって...\n\n詳しく話すと、副業の選び方には落とし穴があるんだよね。\n\n同じ失敗をしてほしくないから、正直に全部話す。",
+    "theme": "副業入門/副業の選び方",
+    "pattern_id": "P02",
+    "pattern_name": "暴露型",
+    "is_affiliate": false,
+    "scores": {
+      "hook": 7.0,
+      "usefulness": 5.0,
+      "specificity": 8.0,
+      "tempo": 7.0,
+      "persona": 9.0,
+      "average": 7.2
+    },
+    "created_at": "2026-03-20T02:44:29.354945",
+    "scheduled_at": null,
+    "status": "queued"
+  },
+  {
+    "id": "P20260320024429_02",
+    "content": "副業詐欺に30万騙された話、全部話す\n\n会社員×副業の両立について、自分の経験をもとに話すね。\n\n副業3ヶ月で月5万達成した方法を、ステップ別に解説するよ。\n\n気になった人はコメントして！",
+    "theme": "マインド/会社員×副業の両立",
+    "pattern_id": "P03",
+    "pattern_name": "需要確認型",
+    "is_affiliate": false,
+    "scores": {
+      "hook": 7.0,
+      "usefulness": 8.0,
+      "specificity": 8.0,
+      "tempo": 7.0,
+      "persona": 5.0,
+      "average": 7.0
+    },
+    "created_at": "2026-03-20T02:44:29.355141",
+    "scheduled_at": null,
+    "status": "queued"
+  }
+]

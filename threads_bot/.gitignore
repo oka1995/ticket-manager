@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+*.pyo
+data/kill_switch.flag
+data/cron.log
+data/research_pool.json
+data/analyst_feedback.json
+data/error.log

@@ -1,0 +1,18 @@
+{
+  "threads_api": {
+    "access_token": "【Threads APIのアクセストークン】",
+    "user_id": "【ThreadsのユーザーID】"
+  },
+  "youtube_api": {
+    "api_key": "【YouTube Data APIキー】"
+  },
+  "claude_api": {
+    "api_key": "【Anthropic APIキー】"
+  },
+  "settings": {
+    "daily_post_limit": 15,
+    "min_interval_minutes": 60,
+    "quality_threshold": 7.0,
+    "similarity_threshold": 0.85
+  }
+}
