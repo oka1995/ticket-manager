@@ -1033,26 +1033,37 @@ async function openBulkImportModal(){
   }
 }
 
-// ファイル名規則 (<base>_1.ext / <base>_2.ext) で表裏ペアリング
+// ScanSnap 命名規則でペアリング
+// 例: 無題.jpg(1枚目), 無題_001.jpg(2枚目), 無題_002.jpg(3枚目), 無題_003.jpg(4枚目)
+// → ベース名でグループ化し、2枚ずつ (表面, 裏面) にペアリング
 function pairBulkFiles(files){
-  const sorted = [...files].sort((a,b)=>a.name.localeCompare(b.name));
+  // "無題_001.jpg" → "無題.jpg"、"無題.jpg" → "無題.jpg"
+  function baseName(name){
+    return name.replace(/_\d+(\.[^.]+)$/, '$1');
+  }
+  // サフィックスなし = -1（先頭）、_001 = 1、_002 = 2 …
+  function pageOrder(name){
+    const m = name.match(/_(\d+)\.[^.]+$/);
+    return m ? parseInt(m[1]) : -1;
+  }
+
+  const groups = {};
+  for(const f of files){
+    const base = baseName(f.name);
+    if(!groups[base]) groups[base] = [];
+    groups[base].push(f);
+  }
+
   const paired = [];
-  const used   = new Set();
-  for(let i=0;i<sorted.length;i++){
-    if(used.has(i)) continue;
-    const f = sorted[i];
-    const m = f.name.match(/^(.+?)_1(\.[^.]+)$/i);
-    if(m){
-      const backName = m[1]+'_2'+m[2];
-      const j = sorted.findIndex((g,k)=>k!==i && !used.has(k) && g.name===backName);
-      if(j!==-1){
-        paired.push({front:sorted[i], back:sorted[j], cardName:'', brand:'Visa', included:true, aiDone:false});
-        used.add(i); used.add(j);
-        continue;
-      }
+  for(const base of Object.keys(groups).sort()){
+    const group = groups[base].sort((a,b)=>pageOrder(a.name)-pageOrder(b.name));
+    for(let i=0;i<group.length;i+=2){
+      paired.push({
+        front: group[i],
+        back:  i+1 < group.length ? group[i+1] : null,
+        cardName:'', brand:'Visa', included:true, aiDone:false
+      });
     }
-    paired.push({front:f, back:null, cardName:'', brand:'Visa', included:true, aiDone:false});
-    used.add(i);
   }
   return paired;
 }
