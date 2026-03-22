@@ -1024,13 +1024,37 @@ async function openBulkImportModal(){
     if(!json.ok) throw new Error(json.error);
     document.getElementById('bulk-loading').style.display = 'none';
     if(!json.files.length){ document.getElementById('bulk-empty').style.display = ''; return; }
-    _bulkFiles = json.files.map(f=>({ fileId:f.fileId, name:f.name, included:true, aiDone:false, cardName:'', brand:'Visa' }));
+    _bulkFiles = pairBulkFiles(json.files);
     renderBulkList();
     document.getElementById('bulk-list-wrap').style.display = '';
     updateBulkSaveBtn();
   }catch(e){
     document.getElementById('bulk-loading').textContent = 'エラー: ' + e.message;
   }
+}
+
+// ファイル名規則 (<base>_1.ext / <base>_2.ext) で表裏ペアリング
+function pairBulkFiles(files){
+  const sorted = [...files].sort((a,b)=>a.name.localeCompare(b.name));
+  const paired = [];
+  const used   = new Set();
+  for(let i=0;i<sorted.length;i++){
+    if(used.has(i)) continue;
+    const f = sorted[i];
+    const m = f.name.match(/^(.+?)_1(\.[^.]+)$/i);
+    if(m){
+      const backName = m[1]+'_2'+m[2];
+      const j = sorted.findIndex((g,k)=>k!==i && !used.has(k) && g.name===backName);
+      if(j!==-1){
+        paired.push({front:sorted[i], back:sorted[j], cardName:'', brand:'Visa', included:true, aiDone:false});
+        used.add(i); used.add(j);
+        continue;
+      }
+    }
+    paired.push({front:f, back:null, cardName:'', brand:'Visa', included:true, aiDone:false});
+    used.add(i);
+  }
+  return paired;
 }
 
 function closeBulkModal(){
@@ -1042,12 +1066,31 @@ const BRAND_OPTIONS = ['Visa','Mastercard','JCB','American Express','Diners Club
 
 function renderBulkList(){
   document.getElementById('bulk-file-count').textContent = `${_bulkFiles.length} 件`;
-  document.getElementById('bulk-list').innerHTML = _bulkFiles.map((f,i)=>`
+  document.getElementById('bulk-list').innerHTML = _bulkFiles.map((f,i)=>{
+    const pairLabel = f.back
+      ? `<span style="font-size:10px;background:#e8f4ea;color:#16a34a;border-radius:3px;padding:1px 5px">表裏ペア</span>`
+      : `<span style="font-size:10px;background:var(--bg3);color:var(--text3);border-radius:3px;padding:1px 5px">表面のみ</span>`;
+    const thumbs = f.back
+      ? `<div style="display:flex;gap:4px;flex-shrink:0">
+           <div style="text-align:center">
+             <img class="bulk-thumb" src="https://drive.google.com/thumbnail?id=${f.front.fileId}&sz=w300" alt="表">
+             <div style="font-size:9px;color:var(--text3);margin-top:1px">表</div>
+           </div>
+           <div style="text-align:center">
+             <img class="bulk-thumb" src="https://drive.google.com/thumbnail?id=${f.back.fileId}&sz=w300" alt="裏">
+             <div style="font-size:9px;color:var(--text3);margin-top:1px">裏</div>
+           </div>
+         </div>`
+      : `<div style="text-align:center;flex-shrink:0">
+           <img class="bulk-thumb" src="https://drive.google.com/thumbnail?id=${f.front.fileId}&sz=w300" alt="表">
+           <div style="font-size:9px;color:var(--text3);margin-top:1px">表</div>
+         </div>`;
+    return `
     <div class="bulk-row${f.included?'':' excluded'}" id="bulk-row-${i}">
       <input type="checkbox" ${f.included?'checked':''} onchange="toggleBulkItem(${i},this.checked)" style="margin-top:3px;flex-shrink:0">
-      <img class="bulk-thumb" src="https://drive.google.com/thumbnail?id=${f.fileId}&sz=w300" alt="">
+      ${thumbs}
       <div class="bulk-info">
-        <div class="bulk-fname">${escHtml(f.name)}</div>
+        <div class="bulk-fname" style="display:flex;align-items:center;gap:5px">${pairLabel}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.front.name)}</span></div>
         <div class="bulk-fields">
           <input type="text" placeholder="カード名称（必須）" value="${escHtml(f.cardName)}"
             oninput="_bulkFiles[${i}].cardName=this.value;updateBulkSaveBtn()" style="height:28px;font-size:12px">
@@ -1061,7 +1104,8 @@ function renderBulkList(){
           <span class="bulk-status" id="bulk-status-${i}">未識別</span>
         </div>
       </div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 }
 
 function toggleBulkItem(i, checked){
@@ -1086,7 +1130,7 @@ async function runAISingleBulk(i){
   btn.disabled = true;
   statusEl.textContent = '識別中…'; statusEl.className = 'bulk-status running';
   try{
-    const imgRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.fileId})});
+    const imgRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.front.fileId})});
     const imgData = await imgRes.json();
     if(!imgData.ok) throw new Error(imgData.error);
 
@@ -1160,7 +1204,8 @@ async function saveBulkCards(){
       const {cipher,iv} = await aesEncrypt(_cryptoKey, JSON.stringify({cardNumber:'',expiry:'',holderName:'',cvv:''}));
       await apiAppend(CARD_SHEET, cardToRow({
         'カードID':cardId, 'カード名称':f.cardName.trim(), 'ブランド':f.brand,
-        '末尾4桁':'', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'', '画像DriveID':f.fileId
+        '末尾4桁':'', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'',
+        '画像DriveID':f.front.fileId, '画像DriveID_裏':f.back?.fileId||''
       }));
       await new Promise(r=>setTimeout(r,150));
     }
