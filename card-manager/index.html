@@ -196,7 +196,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   </p>
   <!-- 画像スキャン -->
   <div class="mi full" style="margin-bottom:10px">
-    <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">スキャン画像（任意）</label>
+    <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">表面スキャン画像（任意）</label>
     <div class="img-zone" id="img-zone"
       ondragover="event.preventDefault();this.classList.add('drag')"
       ondragleave="this.classList.remove('drag')"
@@ -218,6 +218,18 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <div class="ocr-strip-title">OCR で読み取った情報（クリックでフォームに反映）</div>
       <div id="ocr-fields"></div>
     </div>
+  </div>
+  <!-- 裏面画像 -->
+  <div class="mi full" style="margin-bottom:10px">
+    <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">裏面画像（任意）</label>
+    <div class="img-zone" id="img-zone-back"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleImgDropBack(event)">
+      <input type="file" accept="image/*" onchange="handleImgFileBack(this.files[0])">
+      <div class="img-zone-text" id="img-zone-text-back">クリックまたはドラッグで裏面画像を選択</div>
+    </div>
+    <img id="img-preview-back" class="img-preview" alt="card back preview" />
   </div>
   <div class="mgrid">
     <div class="mi full">
@@ -325,6 +337,17 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 </div>
 </div>
 
+<!-- 裏面画像ビューアモーダル -->
+<div id="cardback-modal" style="display:none" class="modal-overlay" onclick="closeCardBackModal()">
+<div class="modal" style="max-width:540px;text-align:center" onclick="event.stopPropagation()">
+  <h2 id="cardback-modal-title">裏面画像</h2>
+  <img id="cardback-img" style="max-width:100%;border-radius:8px;box-shadow:0 2px 16px rgba(0,0,0,.18);margin:8px 0" alt="card back" />
+  <div class="mactions" style="justify-content:center">
+    <button class="btn btn-secondary" onclick="closeCardBackModal()">閉じる</button>
+  </div>
+</div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -361,7 +384,7 @@ async function apiDelete(sheet,rowIndex){
 // 暗号化（AES-GCM + PBKDF2）
 // ================================================================
 const CARD_SHEET        = 'クレジットカード';
-const CARD_HEADERS      = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
+const CARD_HEADERS      = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID','画像DriveID_裏'];
 const PBKDF2_ITERATIONS = 310000;
 const LS_SALT           = 'cc_salt';
 const LS_VERIFIER       = 'cc_verifier';
@@ -374,9 +397,12 @@ let _rawCards     = [];
 let _editCardId   = null;
 let _autoLockTimer= null;
 let _saving       = false;
-let _imgFile      = null;   // 選択中のファイル
-let _imgDataUrl   = null;   // プレビュー用 Data URL
-let _editImgId    = null;   // 編集中カードの既存 Drive FileID
+let _imgFile      = null;   // 表面: 選択中のファイル
+let _imgDataUrl   = null;   // 表面: プレビュー用 Data URL
+let _editImgId    = null;   // 表面: 編集中カードの既存 Drive FileID
+let _imgFileBack     = null;   // 裏面: 選択中のファイル
+let _imgDataUrlBack  = null;   // 裏面: プレビュー用 Data URL
+let _editImgIdBack   = null;   // 裏面: 編集中カードの既存 Drive FileID
 
 function cardToRow(c){ return CARD_HEADERS.map(h=>c[h]??''); }
 
@@ -528,6 +554,7 @@ function renderCards(){
   ${c['メモ']?`<div class="cc-card-info">${escHtml(c['メモ'])}</div>`:''}
   <div class="cc-card-actions">
     <button class="cc-btn" onclick="toggleCardDetails('${c['カードID']}')">👁 表示</button>
+    ${c['画像DriveID_裏'] ? `<button class="cc-btn" onclick="viewCardBack('${escHtml(c['カードID'])}','${escHtml(c['画像DriveID_裏'])}')">📷 裏面</button>` : ''}
     <button class="cc-btn" onclick="openEditCardModal('${c['カードID']}')">編集</button>
     <button class="cc-btn danger" onclick="deleteCard('${c['カードID']}')">削除</button>
   </div>
@@ -685,6 +712,13 @@ function openEditCardModal(cardId){
     prev.style.display = '';
     document.getElementById('img-zone-text').textContent = '別の画像に変更するにはクリック';
   }
+  _editImgIdBack = c['画像DriveID_裏']||null;
+  if(_editImgIdBack){
+    const prevBack = document.getElementById('img-preview-back');
+    prevBack.src   = `https://drive.google.com/thumbnail?id=${_editImgIdBack}&sz=w600`;
+    prevBack.style.display = '';
+    document.getElementById('img-zone-text-back').textContent = '別の裏面画像に変更するにはクリック';
+  }
   document.getElementById('card-modal').style.display = 'flex';
   resetAutoLockTimer();
 }
@@ -712,34 +746,51 @@ async function saveCard(){
   const {cipher, iv} = await aesEncrypt(_cryptoKey, JSON.stringify(sensitive));
   const cardId = _editCardId || 'cc'+Date.now();
 
-  // 画像: 新規ファイルが選択されていればアップロード
+  // 表面画像: 新規ファイルが選択されていればアップロード
   let imageId = _editImgId || '';
   if(_imgFile){
     try{
       const b64 = _imgDataUrl.split(',')[1];
       const up  = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({
         action:'uploadImage', base64:b64, mimeType:_imgFile.type,
-        fileName:`card_${cardId}_${Date.now()}.${_imgFile.name.split('.').pop()}`
+        fileName:`card_${cardId}_front_${Date.now()}.${_imgFile.name.split('.').pop()}`
       })});
       const uj = await up.json();
       if(uj.ok){
-        // 旧画像を削除
         if(_editImgId) await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:_editImgId})});
         imageId = uj.fileId;
       }
-    }catch(e){ console.warn('image upload failed', e); }
+    }catch(e){ console.warn('front image upload failed', e); }
+  }
+
+  // 裏面画像: 新規ファイルが選択されていればアップロード
+  let imageIdBack = _editImgIdBack || '';
+  if(_imgFileBack){
+    try{
+      const b64 = _imgDataUrlBack.split(',')[1];
+      const up  = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({
+        action:'uploadImage', base64:b64, mimeType:_imgFileBack.type,
+        fileName:`card_${cardId}_back_${Date.now()}.${_imgFileBack.name.split('.').pop()}`
+      })});
+      const uj = await up.json();
+      if(uj.ok){
+        if(_editImgIdBack) await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:_editImgIdBack})});
+        imageIdBack = uj.fileId;
+      }
+    }catch(e){ console.warn('back image upload failed', e); }
   }
 
   const obj = {
-    'カードID':    cardId,
-    'カード名称':  nick,
-    'ブランド':    brand,
-    '末尾4桁':     number.slice(-4)||'',
-    '支払日':      payday,
-    '暗号化データ':cipher,
-    'IV':          iv,
-    'メモ':        memo,
-    '画像DriveID': imageId,
+    'カードID':      cardId,
+    'カード名称':    nick,
+    'ブランド':      brand,
+    '末尾4桁':       number.slice(-4)||'',
+    '支払日':        payday,
+    '暗号化データ':  cipher,
+    'IV':            iv,
+    'メモ':          memo,
+    '画像DriveID':   imageId,
+    '画像DriveID_裏':imageIdBack,
   };
   if(_editCardId){
     const rc = _rawCards.find(x=>x['カードID']===_editCardId);
@@ -760,6 +811,9 @@ async function deleteCard(cardId){
   if(!confirm('このカード情報を削除しますか？')) return;
   const rc = _rawCards.find(x=>x['カードID']===cardId);
   if(!rc) return;
+  // Drive 画像を先に削除
+  if(rc['画像DriveID'])   await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:rc['画像DriveID']})});
+  if(rc['画像DriveID_裏']) await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:rc['画像DriveID_裏']})});
   await apiDelete(CARD_SHEET, rc._row);
   _rawCards = await loadRawCards();
   _cards    = await decryptAllCards(_rawCards);
@@ -767,6 +821,21 @@ async function deleteCard(cardId){
   toast('カードを削除しました');
   resetAutoLockTimer();
 }
+
+// ================================================================
+// 裏面画像ビューア
+// ================================================================
+function viewCardBack(cardId, fileId){
+  if(!fileId) return;
+  const c = _cards.find(x=>x['カードID']===cardId);
+  const title = c ? c['カード名称'] + ' 裏面' : '裏面画像';
+  const modal = document.getElementById('cardback-modal');
+  document.getElementById('cardback-modal-title').textContent = title;
+  document.getElementById('cardback-img').src = `https://drive.google.com/thumbnail?id=${encodeURIComponent(fileId)}&sz=w800`;
+  modal.style.display = 'flex';
+  resetAutoLockTimer();
+}
+function closeCardBackModal(){ document.getElementById('cardback-modal').style.display = 'none'; }
 
 // ================================================================
 // トースト通知
@@ -789,6 +858,10 @@ function resetImgState(){
   document.getElementById('ocr-strip').style.display = 'none';
   document.getElementById('ocr-status').style.display = 'none';
   document.getElementById('ai-btn-wrap').style.display = 'none';
+  _imgFileBack = null; _imgDataUrlBack = null; _editImgIdBack = null;
+  const prevBack = document.getElementById('img-preview-back');
+  prevBack.src = ''; prevBack.style.display = 'none';
+  document.getElementById('img-zone-text-back').textContent = 'クリックまたはドラッグで裏面画像を選択';
 }
 
 function handleImgDrop(e){
@@ -796,6 +869,27 @@ function handleImgDrop(e){
   document.getElementById('img-zone').classList.remove('drag');
   const f = e.dataTransfer.files[0];
   if(f && f.type.startsWith('image/')) handleImgFile(f);
+}
+
+function handleImgDropBack(e){
+  e.preventDefault();
+  document.getElementById('img-zone-back').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')) handleImgFileBack(f);
+}
+
+function handleImgFileBack(file){
+  if(!file) return;
+  _imgFileBack = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    _imgDataUrlBack = ev.target.result;
+    const prev = document.getElementById('img-preview-back');
+    prev.src = _imgDataUrlBack;
+    prev.style.display = '';
+    document.getElementById('img-zone-text-back').textContent = file.name;
+  };
+  reader.readAsDataURL(file);
 }
 
 function handleImgFile(file){

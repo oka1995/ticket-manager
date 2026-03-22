@@ -6,7 +6,7 @@
  */
 
 const CARD_SHEET     = 'クレジットカード';
-const CARD_HEADERS   = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
+const CARD_HEADERS   = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID','画像DriveID_裏'];
 const IMG_FOLDER     = 'カード管理-画像';
 const SCAN_FOLDER_ID = '14U6au82KeHTCqtGEStlnGfO5hC73Z0gI'; // ScanSnap 保存先フォルダ
 
