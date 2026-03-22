@@ -496,6 +496,25 @@ const BRAND_COLORS = {
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+// 縦長画像をOCR用に90°回転してcanvasのDataURLとして返す
+function prepareOCRDataUrl(dataUrl){
+  return new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>{
+      if(img.naturalHeight <= img.naturalWidth){ resolve(dataUrl); return; }
+      const canvas = document.createElement('canvas');
+      canvas.width  = img.naturalHeight;
+      canvas.height = img.naturalWidth;
+      const ctx = canvas.getContext('2d');
+      ctx.translate(img.naturalHeight / 2, img.naturalWidth / 2);
+      ctx.rotate(Math.PI / 2);
+      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
+      resolve(canvas.toDataURL('image/jpeg', 0.95));
+    };
+    img.src = dataUrl;
+  });
+}
+
 function orientCardImg(img){
   if(img.naturalHeight <= img.naturalWidth) return; // 横長はそのまま
   requestAnimationFrame(()=>{
@@ -898,8 +917,9 @@ function handleImgFileBack(file){
 
 async function startOCRBack(dataUrl){
   try{
+    const ocrDataUrl = await prepareOCRDataUrl(dataUrl);
     const worker = await Tesseract.createWorker('eng');
-    const { data: { text } } = await worker.recognize(dataUrl);
+    const { data: { text } } = await worker.recognize(ocrDataUrl);
     await worker.terminate();
     const result = parseCardFromOCR(text, {backSide:true});
     if(result.cvv){
@@ -941,8 +961,9 @@ async function startOCR(dataUrl){
   statusEl.style.display = '';
   statusEl.textContent = 'OCR 解析中…';
   try{
+    const ocrDataUrl = await prepareOCRDataUrl(dataUrl);
     const worker = await Tesseract.createWorker('eng');
-    const { data: { text } } = await worker.recognize(dataUrl);
+    const { data: { text } } = await worker.recognize(ocrDataUrl);
     await worker.terminate();
     const result = parseCardFromOCR(text);
     if(Object.keys(result).length){
@@ -1187,9 +1208,10 @@ async function runOCRSingleBulk(i){
     const frontRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.front.fileId})});
     const frontData = await frontRes.json();
     if(!frontData.ok) throw new Error(frontData.error);
-    const frontDataUrl = `data:${frontData.mimeType};base64,${frontData.base64}`;
+    const frontDataUrl    = `data:${frontData.mimeType};base64,${frontData.base64}`;
+    const frontOCRDataUrl = await prepareOCRDataUrl(frontDataUrl);
     const frontWorker  = await Tesseract.createWorker('eng');
-    const { data: { text: frontText } } = await frontWorker.recognize(frontDataUrl);
+    const { data: { text: frontText } } = await frontWorker.recognize(frontOCRDataUrl);
     await frontWorker.terminate();
     const frontResult = parseCardFromOCR(frontText);
 
@@ -1199,9 +1221,10 @@ async function runOCRSingleBulk(i){
       const backRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.back.fileId})});
       const backData = await backRes.json();
       if(backData.ok){
-        const backDataUrl = `data:${backData.mimeType};base64,${backData.base64}`;
+        const backDataUrl    = `data:${backData.mimeType};base64,${backData.base64}`;
+        const backOCRDataUrl = await prepareOCRDataUrl(backDataUrl);
         const backWorker  = await Tesseract.createWorker('eng');
-        const { data: { text: backText } } = await backWorker.recognize(backDataUrl);
+        const { data: { text: backText } } = await backWorker.recognize(backOCRDataUrl);
         await backWorker.terminate();
         cvv = parseCardFromOCR(backText, {backSide:true}).cvv || '';
       }
@@ -1262,7 +1285,7 @@ async function saveBulkCards(){
       }));
       await apiAppend(CARD_SHEET, cardToRow({
         'カードID':cardId, 'カード名称':f.cardName.trim(), 'ブランド':f.brand,
-        '末尾4桁':'', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'',
+        '末尾4桁':f.ocrCardNumber ? f.ocrCardNumber.slice(-4) : '', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'',
         '画像DriveID':f.front.fileId, '画像DriveID_裏':f.back?.fileId||''
       }));
       await new Promise(r=>setTimeout(r,150));
