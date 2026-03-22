@@ -6,7 +6,8 @@
  */
 
 const CARD_SHEET   = 'クレジットカード';
-const CARD_HEADERS = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ'];
+const CARD_HEADERS = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
+const IMG_FOLDER   = 'カード管理-画像';
 
 function doGet(e)  { return handle(e); }
 function doPost(e) { return handle(e); }
@@ -23,11 +24,34 @@ function handle(e) {
       action   = body.action;
       rowIndex = body.rowIndex;
       values   = body.values;
+
+      // ---- 画像アップロード ----
+      if (action === 'uploadImage') {
+        const blob = Utilities.newBlob(
+          Utilities.base64Decode(body.base64),
+          body.mimeType,
+          body.fileName || ('card_' + Date.now() + '.jpg')
+        );
+        const folder = getOrCreateImgFolder();
+        const file   = folder.createFile(blob);
+        file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+        out.setContent(JSON.stringify({ ok: true, fileId: file.getId() }));
+        return out;
+      }
+
+      // ---- 画像削除 ----
+      if (action === 'deleteImage') {
+        if (body.fileId) {
+          DriveApp.getFileById(body.fileId).setTrashed(true);
+        }
+        out.setContent(JSON.stringify({ ok: true }));
+        return out;
+      }
+
     } else {
       action = e.parameter.action;
     }
 
-    // このスクリプトはカードシートのみ操作する
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sh = getOrCreate(ss);
 
@@ -59,6 +83,10 @@ function handle(e) {
   return out;
 }
 
+// ----------------------------------------------------------------
+// シートを取得、なければヘッダー付きで新規作成。
+// 既存シートに不足列があれば末尾に追加（マイグレーション）。
+// ----------------------------------------------------------------
 function getOrCreate(ss) {
   let sh = ss.getSheetByName(CARD_SHEET);
   if (!sh) {
@@ -68,8 +96,25 @@ function getOrCreate(ss) {
     hRange.setFontWeight('bold');
     hRange.setBackground('#f3f3f3');
     sh.setFrozenRows(1);
-    // カード番号列などを非表示にして誤操作を防ぐ
     sh.hideColumns(6, 2); // 暗号化データ・IV 列を非表示
+  } else {
+    // マイグレーション: 不足しているヘッダーを末尾に追加
+    const lastCol = sh.getLastColumn();
+    const existingHeaders = sh.getRange(1, 1, 1, lastCol).getValues()[0];
+    CARD_HEADERS.forEach((h, i) => {
+      if (!existingHeaders.includes(h)) {
+        sh.getRange(1, lastCol + 1 + i - existingHeaders.length).setValue(h);
+      }
+    });
   }
   return sh;
+}
+
+// ----------------------------------------------------------------
+// 画像保存用 Drive フォルダを取得または作成
+// ----------------------------------------------------------------
+function getOrCreateImgFolder() {
+  const folders = DriveApp.getFoldersByName(IMG_FOLDER);
+  if (folders.hasNext()) return folders.next();
+  return DriveApp.createFolder(IMG_FOLDER);
 }

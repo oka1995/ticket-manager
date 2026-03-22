@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>カード管理</title>
+<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -72,6 +73,19 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   .mgrid{grid-template-columns:1fr}
   .mi.full{grid-column:1}
 }
+/* image scan */
+.img-zone{border:2px dashed var(--border2);border-radius:var(--radius-sm);padding:16px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;position:relative;background:var(--bg2)}
+.img-zone:hover,.img-zone.drag{border-color:var(--blue);background:#EBF2FB}
+.img-zone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%}
+.img-zone-text{font-size:12px;color:var(--text2);pointer-events:none}
+.img-preview{width:100%;border-radius:var(--radius-sm);display:none;margin-top:8px;max-height:160px;object-fit:cover;border:1px solid var(--border)}
+.ocr-strip{display:none;background:var(--bg2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;margin-top:8px;font-size:11px}
+.ocr-strip-title{color:var(--text2);margin-bottom:5px;font-weight:600;letter-spacing:.02em}
+.ocr-tag{display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--border2);border-radius:4px;padding:3px 7px;margin:2px;cursor:pointer;font-size:11px;transition:border-color .12s,background .12s}
+.ocr-tag:hover{border-color:var(--blue);background:#EBF2FB}
+.ocr-tag-key{color:var(--text2)}
+.ocr-tag-val{font-weight:600;color:var(--text)}
+.cc-card-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:16px;opacity:.55}
 </style>
 </head>
 <body>
@@ -158,6 +172,23 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   <p style="font-size:12px;color:var(--text2);margin-bottom:1rem;display:flex;align-items:center;gap:5px">
     🔒 カード番号・名義・有効期限・CVVはブラウザ内で暗号化されます
   </p>
+  <!-- 画像スキャン -->
+  <div class="mi full" style="margin-bottom:10px">
+    <label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">スキャン画像（任意）</label>
+    <div class="img-zone" id="img-zone"
+      ondragover="event.preventDefault();this.classList.add('drag')"
+      ondragleave="this.classList.remove('drag')"
+      ondrop="handleImgDrop(event)">
+      <input type="file" accept="image/*" onchange="handleImgFile(this.files[0])">
+      <div class="img-zone-text" id="img-zone-text">クリックまたはドラッグで画像を選択</div>
+    </div>
+    <img id="img-preview" class="img-preview" alt="card preview" />
+    <div id="ocr-status" style="font-size:11px;color:var(--text2);margin-top:4px;display:none"></div>
+    <div class="ocr-strip" id="ocr-strip">
+      <div class="ocr-strip-title">OCR で読み取った情報（クリックでフォームに反映）</div>
+      <div id="ocr-fields"></div>
+    </div>
+  </div>
   <div class="mgrid">
     <div class="mi full">
       <label>カード名称</label>
@@ -216,7 +247,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 <div class="toast" id="toast"></div>
 
 <script>
-const GAS_URL = "YOUR_GAS_URL_HERE";
+const GAS_URL = "https://script.google.com/macros/s/AKfycbxSqWHrrFfqtOW6R93m3m2-LHWZprQrNUW7SmDBq4ZfT7zucDHJeCJP9qOafvjPo7d6/exec";
 
 // ================================================================
 // API（Google Apps Script）
@@ -249,7 +280,7 @@ async function apiDelete(sheet,rowIndex){
 // 暗号化（AES-GCM + PBKDF2）
 // ================================================================
 const CARD_SHEET        = 'クレジットカード';
-const CARD_HEADERS      = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ'];
+const CARD_HEADERS      = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
 const PBKDF2_ITERATIONS = 310000;
 const LS_SALT           = 'cc_salt';
 const LS_VERIFIER       = 'cc_verifier';
@@ -262,6 +293,9 @@ let _rawCards     = [];
 let _editCardId   = null;
 let _autoLockTimer= null;
 let _saving       = false;
+let _imgFile      = null;   // 選択中のファイル
+let _imgDataUrl   = null;   // プレビュー用 Data URL
+let _editImgId    = null;   // 編集中カードの既存 Drive FileID
 
 function cardToRow(c){ return CARD_HEADERS.map(h=>c[h]??''); }
 
@@ -378,11 +412,15 @@ function renderCards(){
   if(!_cards.length){ grid.innerHTML=''; empty.style.display=''; return; }
   empty.style.display = 'none';
   grid.innerHTML = _cards.map(c=>{
-    const s     = c._sensitive||{};
-    const bg    = BRAND_COLORS[c['ブランド']] || 'linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%)';
-    const last4 = c['末尾4桁']||'????';
+    const s      = c._sensitive||{};
+    const fileId = c['画像DriveID']||'';
+    const bg     = BRAND_COLORS[c['ブランド']] || 'linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%)';
+    const imgBg  = fileId
+      ? `background:linear-gradient(rgba(0,0,0,.52),rgba(0,0,0,.52)),url('https://drive.google.com/thumbnail?id=${escHtml(fileId)}&sz=w600') center/cover`
+      : `background:${bg}`;
+    const last4  = c['末尾4桁']||'????';
     const payday = c['支払日'] ? (c['支払日']==='末日'?'毎月末日':`毎月${c['支払日']}日`) : '未設定';
-    return `<div class="cc-card" style="background:${bg}">
+    return `<div class="cc-card" style="${imgBg}">
   <div class="cc-card-brand">${escHtml(c['ブランド']||'')}</div>
   <div class="cc-card-name">${escHtml(c['カード名称']||'')}</div>
   <div class="cc-card-number"
@@ -536,6 +574,7 @@ function openAddCardModal(){
   document.getElementById('cm-brand').value  = 'Visa';
   document.getElementById('cm-payday').value = '';
   document.getElementById('card-modal-error').style.display = 'none';
+  resetImgState();
   document.getElementById('card-modal').style.display = 'flex';
   resetAutoLockTimer();
 }
@@ -554,6 +593,14 @@ function openEditCardModal(cardId){
   document.getElementById('cm-cvv').value    = c._sensitive?.cvv||'';
   document.getElementById('cm-memo').value   = c['メモ']||'';
   document.getElementById('card-modal-error').style.display = 'none';
+  resetImgState();
+  _editImgId = c['画像DriveID']||null;
+  if(_editImgId){
+    const prev = document.getElementById('img-preview');
+    prev.src   = `https://drive.google.com/thumbnail?id=${_editImgId}&sz=w600`;
+    prev.style.display = '';
+    document.getElementById('img-zone-text').textContent = '別の画像に変更するにはクリック';
+  }
   document.getElementById('card-modal').style.display = 'flex';
   resetAutoLockTimer();
 }
@@ -580,6 +627,25 @@ async function saveCard(){
   const sensitive = {cardNumber:number, expiry, holderName:holder, cvv};
   const {cipher, iv} = await aesEncrypt(_cryptoKey, JSON.stringify(sensitive));
   const cardId = _editCardId || 'cc'+Date.now();
+
+  // 画像: 新規ファイルが選択されていればアップロード
+  let imageId = _editImgId || '';
+  if(_imgFile){
+    try{
+      const b64 = _imgDataUrl.split(',')[1];
+      const up  = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({
+        action:'uploadImage', base64:b64, mimeType:_imgFile.type,
+        fileName:`card_${cardId}_${Date.now()}.${_imgFile.name.split('.').pop()}`
+      })});
+      const uj = await up.json();
+      if(uj.ok){
+        // 旧画像を削除
+        if(_editImgId) await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:_editImgId})});
+        imageId = uj.fileId;
+      }
+    }catch(e){ console.warn('image upload failed', e); }
+  }
+
   const obj = {
     'カードID':    cardId,
     'カード名称':  nick,
@@ -589,6 +655,7 @@ async function saveCard(){
     '暗号化データ':cipher,
     'IV':          iv,
     'メモ':        memo,
+    '画像DriveID': imageId,
   };
   if(_editCardId){
     const rc = _rawCards.find(x=>x['カードID']===_editCardId);
@@ -625,6 +692,120 @@ function toast(msg){
   el.textContent = msg;
   el.classList.add('show');
   setTimeout(()=>el.classList.remove('show'), 2200);
+}
+
+// ================================================================
+// 画像スキャン & OCR
+// ================================================================
+function resetImgState(){
+  _imgFile = null; _imgDataUrl = null; _editImgId = null;
+  const prev = document.getElementById('img-preview');
+  prev.src = ''; prev.style.display = 'none';
+  document.getElementById('img-zone-text').textContent = 'クリックまたはドラッグで画像を選択';
+  document.getElementById('ocr-strip').style.display = 'none';
+  document.getElementById('ocr-status').style.display = 'none';
+}
+
+function handleImgDrop(e){
+  e.preventDefault();
+  document.getElementById('img-zone').classList.remove('drag');
+  const f = e.dataTransfer.files[0];
+  if(f && f.type.startsWith('image/')) handleImgFile(f);
+}
+
+function handleImgFile(file){
+  if(!file) return;
+  _imgFile = file;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    _imgDataUrl = ev.target.result;
+    const prev = document.getElementById('img-preview');
+    prev.src = _imgDataUrl;
+    prev.style.display = '';
+    document.getElementById('img-zone-text').textContent = file.name;
+    startOCR(_imgDataUrl);
+  };
+  reader.readAsDataURL(file);
+}
+
+async function startOCR(dataUrl){
+  const statusEl = document.getElementById('ocr-status');
+  const stripEl  = document.getElementById('ocr-strip');
+  stripEl.style.display = 'none';
+  statusEl.style.display = '';
+  statusEl.textContent = 'OCR 解析中…';
+  try{
+    const worker = await Tesseract.createWorker('eng');
+    const { data: { text } } = await worker.recognize(dataUrl);
+    await worker.terminate();
+    const result = parseCardFromOCR(text);
+    if(Object.keys(result).length){
+      renderOCRFields(result);
+      stripEl.style.display = '';
+      statusEl.style.display = 'none';
+    } else {
+      statusEl.textContent = 'OCR: 読み取れる情報がありませんでした';
+    }
+  }catch(e){
+    statusEl.textContent = 'OCR: 解析に失敗しました（手動入力してください）';
+    console.warn('OCR error', e);
+  }
+}
+
+function parseCardFromOCR(text){
+  const result = {};
+  // 有効期限 MM/YY or MM/YYYY
+  const expM = text.match(/\b(0[1-9]|1[0-2])\s*[\/\-]\s*(\d{2,4})\b/);
+  if(expM) result.expiry = `${expM[1]}/${expM[2].slice(-2)}`;
+  // カード番号（4桁×4）
+  const numM = text.match(/\b(\d{4})[\s\-](\d{4})[\s\-](\d{4})[\s\-](\d{4})\b/);
+  if(numM){ result.cardNumber = numM.slice(1,5).join(''); result.last4 = numM[4]; }
+  // ブランド
+  if(/\bVISA\b/i.test(text))                        result.brand = 'Visa';
+  else if(/mastercard/i.test(text))                  result.brand = 'Mastercard';
+  else if(/\bJCB\b/i.test(text))                     result.brand = 'JCB';
+  else if(/american\s+express|amex/i.test(text))     result.brand = 'American Express';
+  else if(/diners/i.test(text))                      result.brand = 'Diners Club';
+  // 名義人: 大文字英字のみの行（VALID THRU などのラベルを除外）
+  const SKIP = /VALID|THRU|EXPIRE|CREDIT|DEBIT|CARD|MEMBER|SINCE|GOLD|PLATINUM|CLASSIC|STANDARD/i;
+  for(const line of text.split('\n')){
+    const t = line.trim();
+    if(/^[A-Z][A-Z\s\/]{4,27}$/.test(t) && !SKIP.test(t)){
+      result.holderName = t.trim(); break;
+    }
+  }
+  return result;
+}
+
+function renderOCRFields(result){
+  const LABELS = {
+    brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人'
+  };
+  const fieldsEl = document.getElementById('ocr-fields');
+  fieldsEl.innerHTML = Object.entries(result)
+    .filter(([k])=>k!=='last4')
+    .map(([k,v])=>{
+      const disp = k==='cardNumber' ? v.replace(/(\d{4})/g,'$1 ').trim() : v;
+      return `<span class="ocr-tag" onclick="applyOCRField('${k}','${v.replace(/'/g,'\\\'')}')" title="クリックでフォームに反映">
+        <span class="ocr-tag-key">${LABELS[k]||k}:</span>
+        <span class="ocr-tag-val">${escHtml(disp)}</span>
+      </span>`;
+    }).join('');
+}
+
+function applyOCRField(key, val){
+  if(key==='brand'){
+    document.getElementById('cm-brand').value = val;
+  } else if(key==='cardNumber'){
+    const el = document.getElementById('cm-number');
+    el.value = val.replace(/(\d{4})/g,'$1 ').trim();
+  } else if(key==='expiry'){
+    document.getElementById('cm-expiry').value = val;
+  } else if(key==='holderName'){
+    document.getElementById('cm-holder').value = val;
+  }
+  toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
+  resetAutoLockTimer();
 }
 
 // ================================================================

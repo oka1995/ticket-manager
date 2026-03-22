@@ -78,7 +78,7 @@ async function main() {
   const deployOut = capture('clasp deploy --description "初回デプロイ"');
   console.log('  ' + deployOut.replace(/\n/g, '\n  '));
 
-  const deployMatch = deployOut.match(/- ([\w-]+) @/);
+  const deployMatch = deployOut.match(/(?:Deployed |- )([\w-]+) @/);
   if (!deployMatch) {
     fail('デプロイIDの取得に失敗しました。Apps Script の「デプロイ」からURLを確認してください。');
     cleanup();
