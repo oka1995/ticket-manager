@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "setup": "node setup.js"
+    "setup": "node setup.js",
+    "deploy": "node deploy.js"
   },
   "engines": {
     "node": ">=18"
