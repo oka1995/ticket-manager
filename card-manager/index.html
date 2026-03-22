@@ -794,9 +794,6 @@ async function deleteCard(cardId){
   if(!confirm('このカード情報を削除しますか？')) return;
   const rc = _rawCards.find(x=>x['カードID']===cardId);
   if(!rc) return;
-  // Drive 画像を先に削除
-  if(rc['画像DriveID'])   await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:rc['画像DriveID']})});
-  if(rc['画像DriveID_裏']) await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'deleteImage',fileId:rc['画像DriveID_裏']})});
   await apiDelete(CARD_SHEET, rc._row);
   _rawCards = await loadRawCards();
   _cards    = await decryptAllCards(_rawCards);
