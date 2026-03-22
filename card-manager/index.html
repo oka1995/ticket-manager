@@ -200,8 +200,9 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <div class="img-zone-text" id="img-zone-text">クリックまたはドラッグで画像を選択</div>
     </div>
     <img id="img-preview" class="img-preview" alt="card preview" />
-    <div style="font-size:11px;color:var(--text2);margin-top:4px">
+    <div style="font-size:11px;color:var(--text2);margin-top:4px;display:flex;align-items:center;gap:4px">
       <a href="javascript:void(0)" onclick="openScanFolder()" style="color:var(--blue)">📁 ScanSnap 保存先フォルダを開く</a>
+      <button onclick="openScanFolderSettings()" title="フォルダURLを設定" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text2);padding:0;line-height:1">⚙</button>
     </div>
     <div id="ai-btn-wrap" style="display:none;gap:5px;align-items:center;margin-top:6px">
       <button class="btn btn-ai btn-sm" id="ai-identify-btn" onclick="identifyCardWithAI()">🤖 AI でカードを特定</button>
@@ -301,6 +302,20 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   <div class="mactions">
     <button class="btn btn-secondary" onclick="closeApiKeyModal()">キャンセル</button>
     <button class="btn btn-primary" onclick="saveApiKey()">保存して続行</button>
+  </div>
+</div>
+</div>
+
+<div id="scanfolder-modal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:420px">
+  <h2>📁 ScanSnap 保存先フォルダ設定</h2>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:1rem">Google Drive の「カード管理-画像」フォルダの URL を入力してください。ブラウザのローカルストレージのみに保存されます。</p>
+  <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">フォルダ URL</label>
+    <input id="scanfolder-input" type="url" placeholder="https://drive.google.com/drive/folders/..." autocomplete="off"
+      onkeydown="if(event.key==='Enter')saveScanFolder()" /></div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closeScanFolderModal()">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveScanFolder()">保存</button>
   </div>
 </div>
 </div>
@@ -1047,22 +1062,30 @@ async function saveBulkCards(){
 // ================================================================
 // ScanSnap 保存先フォルダ
 // ================================================================
-async function openScanFolder(){
-  // ポップアップブロック回避: ユーザージェスチャー中に先にウィンドウを開く
-  const win = window.open('', '_blank');
-  try{
-    const res  = await fetch(`${GAS_URL}?action=getImgFolderUrl`);
-    const json = await res.json();
-    if(json.ok){
-      win.location.href = json.folderUrl;
-    } else {
-      win.close();
-      toast('フォルダ取得エラー: ' + json.error);
-    }
-  }catch(e){
-    win.close();
-    toast('フォルダを開けませんでした: ' + e.message);
-  }
+const LS_SCAN_FOLDER = 'cc_scan_folder_url';
+
+function openScanFolder(){
+  const url = localStorage.getItem(LS_SCAN_FOLDER);
+  if(url){ window.open(url, '_blank'); }
+  else { openScanFolderSettings(); }
+}
+
+function openScanFolderSettings(){
+  document.getElementById('scanfolder-input').value = localStorage.getItem(LS_SCAN_FOLDER)||'';
+  document.getElementById('scanfolder-modal').style.display = 'flex';
+  setTimeout(()=>document.getElementById('scanfolder-input').focus(), 80);
+}
+
+function closeScanFolderModal(){
+  document.getElementById('scanfolder-modal').style.display = 'none';
+}
+
+function saveScanFolder(){
+  const url = document.getElementById('scanfolder-input').value.trim();
+  if(!url){ toast('URLを入力してください'); return; }
+  localStorage.setItem(LS_SCAN_FOLDER, url);
+  closeScanFolderModal();
+  toast('フォルダURLを保存しました');
 }
 
 // ================================================================
