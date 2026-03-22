@@ -55,7 +55,11 @@ function handle(e) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sh = getOrCreate(ss);
 
-    if (action === 'read') {
+    if (action === 'getImgFolderUrl') {
+      const folder = getOrCreateImgFolder();
+      out.setContent(JSON.stringify({ ok: true, folderId: folder.getId(), folderUrl: folder.getUrl() }));
+
+    } else if (action === 'read') {
       out.setContent(JSON.stringify({ ok: true, data: sh.getDataRange().getValues() }));
 
     } else if (action === 'append') {
@@ -73,7 +77,7 @@ function handle(e) {
       out.setContent(JSON.stringify({ ok: true }));
 
     } else {
-      out.setContent(JSON.stringify({ ok: false, error: '不明なアクション' }));
+      out.setContent(JSON.stringify({ ok: false, error: '不明なアクション: ' + action }));
     }
 
   } catch (err) {

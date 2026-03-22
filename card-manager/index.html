@@ -187,6 +187,9 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <div class="img-zone-text" id="img-zone-text">クリックまたはドラッグで画像を選択</div>
     </div>
     <img id="img-preview" class="img-preview" alt="card preview" />
+    <div style="font-size:11px;color:var(--text2);margin-top:4px">
+      <a href="javascript:void(0)" onclick="openScanFolder()" style="color:var(--blue)">📁 ScanSnap 保存先フォルダを開く</a>
+    </div>
     <div id="ai-btn-wrap" style="display:none;gap:5px;align-items:center;margin-top:6px">
       <button class="btn btn-ai btn-sm" id="ai-identify-btn" onclick="identifyCardWithAI()">🤖 AI でカードを特定</button>
       <button class="btn btn-secondary btn-sm" onclick="openApiKeyModal()" title="Anthropic API キー設定" style="width:28px;padding:0">⚙</button>
@@ -832,6 +835,18 @@ function applyOCRField(key, val){
   }
   toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
   resetAutoLockTimer();
+}
+
+// ================================================================
+// ScanSnap 保存先フォルダ
+// ================================================================
+async function openScanFolder(){
+  try{
+    const res  = await fetch(`${GAS_URL}?action=getImgFolderUrl`);
+    const json = await res.json();
+    if(json.ok) window.open(json.folderUrl, '_blank');
+    else toast('フォルダ取得エラー: ' + json.error);
+  }catch(e){ toast('フォルダを開けませんでした'); }
 }
 
 // ================================================================
