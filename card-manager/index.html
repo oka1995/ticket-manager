@@ -267,7 +267,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
     </div>
     <div class="mi">
       <label>CVV/CVC 🔒（任意）</label>
-      <input id="cm-cvv" type="password" placeholder="3〜4桁" maxlength="4"
+      <input id="cm-cvv" type="text" placeholder="3〜4桁" maxlength="4"
         autocomplete="off" inputmode="numeric" />
     </div>
     <div class="mi full">
@@ -940,12 +940,17 @@ async function startOCR(dataUrl){
 
 function parseCardFromOCR(text, {backSide=false}={}){
   const result = {};
-  // 有効期限 MM/YY or MM/YYYY
-  const expM = text.match(/\b(0[1-9]|1[0-2])\s*[\/\-]\s*(\d{2,4})\b/);
-  if(expM) result.expiry = `${expM[1]}/${expM[2].slice(-2)}`;
-  // カード番号（4桁×4）
-  const numM = text.match(/\b(\d{4})[\s\-](\d{4})[\s\-](\d{4})[\s\-](\d{4})\b/);
+  // カード番号（4桁×4、区切りあり/なし両対応）
+  const numM = text.match(/\b(\d{4})[\s\-]?(\d{4})[\s\-]?(\d{4})[\s\-]?(\d{4})\b/);
   if(numM){ result.cardNumber = numM.slice(1,5).join(''); result.last4 = numM[4]; }
+  // 有効期限: MM/YY, MM-YY, VALID THRU MM/YY, スペース区切りなど
+  const expM = text.match(/(?:VALID\s+(?:THRU|THROUGH|THRU?)\s+)?([01]?\d)\s*[\/\-]\s*(\d{2,4})/i)
+             || text.match(/(?:VALID\s+(?:THRU|THROUGH|THRU?)\s+)([01]?\d)\s+(\d{2,4})/i);
+  if(expM){
+    const mm = expM[1].padStart(2,'0');
+    const yy = expM[2].slice(-2);
+    if(parseInt(mm)>=1 && parseInt(mm)<=12) result.expiry = `${mm}/${yy}`;
+  }
   // ブランド
   if(/\bVISA\b/i.test(text))                        result.brand = 'Visa';
   else if(/mastercard/i.test(text))                  result.brand = 'Mastercard';
@@ -956,7 +961,7 @@ function parseCardFromOCR(text, {backSide=false}={}){
   const SKIP = /VALID|THRU|EXPIRE|CREDIT|DEBIT|CARD|MEMBER|SINCE|GOLD|PLATINUM|CLASSIC|STANDARD/i;
   for(const line of text.split('\n')){
     const t = line.trim();
-    if(/^[A-Z][A-Z\s\/]{4,27}$/.test(t) && !SKIP.test(t)){
+    if(/^[A-Z][A-Z\s\/\.\-]{2,27}$/.test(t) && !SKIP.test(t)){
       result.holderName = t.trim(); break;
     }
   }
