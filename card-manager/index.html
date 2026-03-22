@@ -946,12 +946,6 @@ function parseCardFromOCR(text, {backSide=false}={}){
   // カード番号（4桁×4）
   const numM = text.match(/\b(\d{4})[\s\-](\d{4})[\s\-](\d{4})[\s\-](\d{4})\b/);
   if(numM){ result.cardNumber = numM.slice(1,5).join(''); result.last4 = numM[4]; }
-  // ブランド
-  if(/\bVISA\b/i.test(text))                        result.brand = 'Visa';
-  else if(/mastercard/i.test(text))                  result.brand = 'Mastercard';
-  else if(/\bJCB\b/i.test(text))                     result.brand = 'JCB';
-  else if(/american\s+express|amex/i.test(text))     result.brand = 'American Express';
-  else if(/diners/i.test(text))                      result.brand = 'Diners Club';
   // 名義人: 大文字英字のみの行（VALID THRU などのラベルを除外）
   const SKIP = /VALID|THRU|EXPIRE|CREDIT|DEBIT|CARD|MEMBER|SINCE|GOLD|PLATINUM|CLASSIC|STANDARD/i;
   for(const line of text.split('\n')){
@@ -974,7 +968,7 @@ function parseCardFromOCR(text, {backSide=false}={}){
 
 function renderOCRFields(result){
   const LABELS = {
-    brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'
+    cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'
   };
   const fieldsEl = document.getElementById('ocr-fields');
   fieldsEl.innerHTML = Object.entries(result)
@@ -989,7 +983,7 @@ function renderOCRFields(result){
 }
 
 function applyOCRField(key, val){
-  const LABELS = {brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'};
+  const LABELS = {cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'};
   if(key==='brand'){
     document.getElementById('cm-brand').value = val;
   } else if(key==='cardNumber'){
@@ -1115,7 +1109,9 @@ function renderBulkList(){
          </div>`;
     return `
     <div class="bulk-row${f.included?'':' excluded'}" id="bulk-row-${i}">
-      <input type="checkbox" ${f.included?'checked':''} onchange="toggleBulkItem(${i},this.checked)" style="margin-top:3px;flex-shrink:0">
+      <div style="width:16px;flex-shrink:0;padding-top:3px">
+        <input type="checkbox" ${f.included?'checked':''} onchange="toggleBulkItem(${i},this.checked)">
+      </div>
       ${thumbs}
       <div class="bulk-info">
         <div class="bulk-fname" style="display:flex;align-items:center;gap:5px">${pairLabel}<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(f.front.name)}</span></div>
@@ -1180,11 +1176,6 @@ async function runOCRSingleBulk(i){
       }
     }
 
-    const validBrands = ['Visa','Mastercard','JCB','American Express','Diners Club'];
-    if(frontResult.brand && validBrands.includes(frontResult.brand)){
-      _bulkFiles[i].brand = frontResult.brand;
-      document.getElementById(`bulk-row-${i}`).querySelector('select').value = frontResult.brand;
-    }
     _bulkFiles[i].ocrCardNumber  = frontResult.cardNumber  || '';
     _bulkFiles[i].ocrExpiry      = frontResult.expiry      || '';
     _bulkFiles[i].ocrHolderName  = frontResult.holderName  || '';
