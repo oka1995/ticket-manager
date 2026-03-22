@@ -5,9 +5,10 @@
  * スプレッドシート上に平文のカード情報は一切存在しません。
  */
 
-const CARD_SHEET   = 'クレジットカード';
-const CARD_HEADERS = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
-const IMG_FOLDER   = 'カード管理-画像';
+const CARD_SHEET     = 'クレジットカード';
+const CARD_HEADERS   = ['カードID','カード名称','ブランド','末尾4桁','支払日','暗号化データ','IV','メモ','画像DriveID'];
+const IMG_FOLDER     = 'カード管理-画像';
+const SCAN_FOLDER_ID = '14U6au82KeHTCqtGEStlnGfO5hC73Z0gI'; // ScanSnap 保存先フォルダ
 
 function doGet(e)  { return handle(e); }
 function doPost(e) { return handle(e); }
@@ -145,9 +146,12 @@ function getOrCreate(ss) {
 }
 
 // ----------------------------------------------------------------
-// 画像保存用 Drive フォルダを取得または作成
+// 画像保存用 Drive フォルダを取得（ScanSnap フォルダを優先使用）
 // ----------------------------------------------------------------
 function getOrCreateImgFolder() {
+  if (SCAN_FOLDER_ID) {
+    try { return DriveApp.getFolderById(SCAN_FOLDER_ID); } catch(e2) {}
+  }
   const folders = DriveApp.getFoldersByName(IMG_FOLDER);
   if (folders.hasNext()) return folders.next();
   return DriveApp.createFolder(IMG_FOLDER);

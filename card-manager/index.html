@@ -139,6 +139,11 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
         <button class="btn btn-primary btn-sm" onclick="openAddCardModal()">+ カードを追加</button>
       </div>
     </div>
+    <div id="new-images-banner" style="display:none;background:#1A6ED4;color:#fff;border-radius:6px;padding:8px 12px;margin-bottom:10px;font-size:12px;align-items:center;gap:8px">
+      <span id="new-images-text"></span>
+      <button onclick="openBulkImportModal()" style="background:#fff;color:#1A6ED4;border:none;border-radius:4px;padding:3px 10px;font-size:12px;cursor:pointer;font-weight:600;margin-left:auto">一括取込</button>
+      <button onclick="this.parentElement.style.display='none'" style="background:none;border:none;color:rgba(255,255,255,.7);cursor:pointer;font-size:14px;padding:0;margin-left:4px" title="閉じる">×</button>
+    </div>
     <div class="cc-grid" id="cc-grid"></div>
     <div id="cc-empty" class="empty" style="display:none">カードが登録されていません</div>
   </div>
@@ -273,7 +278,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 <div id="bulk-modal" style="display:none" class="modal-overlay">
 <div class="modal" style="max-width:620px;width:100%">
   <h2>📥 Drive から一括取込</h2>
-  <p style="font-size:12px;color:var(--text2);margin-bottom:.75rem">「カード管理-画像」フォルダ内の未取込画像を表示します。AI で識別後、カード名称を確認して追加してください。</p>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:.75rem">ScanSnap フォルダ内の未取込画像を表示します。AI で識別後、カード名称を確認して追加してください。</p>
   <div id="bulk-loading" style="text-align:center;padding:2rem;color:var(--text2)">Drive を確認中…</div>
   <div id="bulk-empty" style="display:none;text-align:center;padding:2rem;color:var(--text2)">未取込の画像がありません</div>
   <div id="bulk-list-wrap" style="display:none">
@@ -586,6 +591,7 @@ async function saveSetupPassword(){
   renderView();
   resetAutoLockTimer();
   toast('パスワードを設定しました');
+  checkNewImages();
 }
 
 // ================================================================
@@ -613,6 +619,7 @@ async function verifyAndUnlock(){
   renderView();
   resetAutoLockTimer();
   toast('ロックを解除しました');
+  checkNewImages();
 }
 
 // ================================================================
@@ -885,6 +892,22 @@ function applyOCRField(key, val){
   }
   toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
   resetAutoLockTimer();
+}
+
+// ================================================================
+// 未取込チェック（ロック解除後に自動呼び出し）
+// ================================================================
+async function checkNewImages(){
+  const banner = document.getElementById('new-images-banner');
+  banner.style.display = 'none';
+  try{
+    const res  = await fetch(`${GAS_URL}?action=listImgFolder`);
+    const json = await res.json();
+    if(!json.ok || !json.files.length) return;
+    document.getElementById('new-images-text').textContent =
+      `📥 未取り込みの画像が ${json.files.length} 枚あります`;
+    banner.style.display = 'flex';
+  }catch(e){ /* ネットワークエラーは無視 */ }
 }
 
 // ================================================================
