@@ -86,6 +86,10 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .ocr-tag-key{color:var(--text2)}
 .ocr-tag-val{font-weight:600;color:var(--text)}
 .cc-card-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:16px;opacity:.55}
+/* AI identify */
+.btn-ai{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none}
+.btn-ai:hover{opacity:.85}
+.btn-ai:disabled{opacity:.5;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -183,6 +187,10 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <div class="img-zone-text" id="img-zone-text">クリックまたはドラッグで画像を選択</div>
     </div>
     <img id="img-preview" class="img-preview" alt="card preview" />
+    <div id="ai-btn-wrap" style="display:none;gap:5px;align-items:center;margin-top:6px">
+      <button class="btn btn-ai btn-sm" id="ai-identify-btn" onclick="identifyCardWithAI()">🤖 AI でカードを特定</button>
+      <button class="btn btn-secondary btn-sm" onclick="openApiKeyModal()" title="Anthropic API キー設定" style="width:28px;padding:0">⚙</button>
+    </div>
     <div id="ocr-status" style="font-size:11px;color:var(--text2);margin-top:4px;display:none"></div>
     <div class="ocr-strip" id="ocr-strip">
       <div class="ocr-strip-title">OCR で読み取った情報（クリックでフォームに反映）</div>
@@ -240,6 +248,22 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   <div class="mactions">
     <button class="btn btn-secondary" onclick="closeCardModal()">キャンセル</button>
     <button class="btn btn-primary" onclick="saveCard()">保存</button>
+  </div>
+</div>
+</div>
+
+<!-- Anthropic API キー設定モーダル -->
+<div id="apikey-modal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:420px">
+  <h2>🤖 Anthropic API キー設定</h2>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:1rem">カード識別に Claude AI（claude-opus-4-6）を使用します。<a href="https://console.anthropic.com/" target="_blank" rel="noopener" style="color:var(--blue)">Anthropic Console</a> で発行した API キーを入力してください。キーはこのブラウザのローカルストレージのみに保存されます。</p>
+  <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">API キー</label>
+    <input id="apikey-input" type="password" placeholder="sk-ant-..." autocomplete="off"
+      onkeydown="if(event.key==='Enter')saveApiKey()" /></div>
+  <div id="apikey-error" style="font-size:12px;color:var(--red);margin-top:6px;display:none"></div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closeApiKeyModal()">キャンセル</button>
+    <button class="btn btn-primary" onclick="saveApiKey()">保存して続行</button>
   </div>
 </div>
 </div>
@@ -704,6 +728,7 @@ function resetImgState(){
   document.getElementById('img-zone-text').textContent = 'クリックまたはドラッグで画像を選択';
   document.getElementById('ocr-strip').style.display = 'none';
   document.getElementById('ocr-status').style.display = 'none';
+  document.getElementById('ai-btn-wrap').style.display = 'none';
 }
 
 function handleImgDrop(e){
@@ -723,6 +748,7 @@ function handleImgFile(file){
     prev.src = _imgDataUrl;
     prev.style.display = '';
     document.getElementById('img-zone-text').textContent = file.name;
+    document.getElementById('ai-btn-wrap').style.display = 'flex';
     startOCR(_imgDataUrl);
   };
   reader.readAsDataURL(file);
@@ -805,6 +831,147 @@ function applyOCRField(key, val){
     document.getElementById('cm-holder').value = val;
   }
   toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
+  resetAutoLockTimer();
+}
+
+// ================================================================
+// Claude AI カード識別
+// ================================================================
+const LS_CLAUDE_KEY = 'cc_claude_api_key';
+let _aiPending = false;
+
+function openApiKeyModal(){
+  document.getElementById('apikey-input').value = localStorage.getItem(LS_CLAUDE_KEY)||'';
+  document.getElementById('apikey-error').style.display = 'none';
+  document.getElementById('apikey-modal').style.display = 'flex';
+  setTimeout(()=>document.getElementById('apikey-input').focus(), 80);
+}
+function closeApiKeyModal(){
+  _aiPending = false;
+  document.getElementById('apikey-modal').style.display = 'none';
+}
+function saveApiKey(){
+  const key = document.getElementById('apikey-input').value.trim();
+  const errEl = document.getElementById('apikey-error');
+  if(!key){ errEl.textContent='API キーを入力してください'; errEl.style.display=''; return; }
+  localStorage.setItem(LS_CLAUDE_KEY, key);
+  document.getElementById('apikey-modal').style.display = 'none';
+  if(_aiPending){ _aiPending = false; identifyCardWithAI(); }
+}
+
+async function identifyCardWithAI(){
+  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
+  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
+  if(!_imgDataUrl) return;
+  const btn      = document.getElementById('ai-identify-btn');
+  const statusEl = document.getElementById('ocr-status');
+  btn.disabled   = true;
+  statusEl.textContent = '🤖 AI 解析中…';
+  statusEl.style.display = '';
+  try{
+    const base64   = _imgDataUrl.split(',')[1];
+    const mimeType = _imgFile?.type || 'image/jpeg';
+    const res = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{
+        'Content-Type':'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version':'2023-06-01',
+        'anthropic-dangerous-allow-browser':'true'
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-6',
+        max_tokens: 512,
+        output_config:{
+          format:{
+            type:'json_schema',
+            json_schema:{
+              name:'card_identification',
+              schema:{
+                type:'object',
+                properties:{
+                  cardName:{ type:'string', description:'カードの商品名（例: 三井住友カード ゴールド(NL)）' },
+                  issuer:  { type:'string', description:'発行会社（例: 三井住友カード）' },
+                  brand:   { type:'string', description:'Visa / Mastercard / JCB / American Express / Diners Club / その他' },
+                  grade:   { type:'string', description:'ゴールド、プラチナ、スタンダードなど（不明なら空）' }
+                },
+                required:['cardName','issuer','brand','grade'],
+                additionalProperties:false
+              }
+            }
+          }
+        },
+        messages:[{
+          role:'user',
+          content:[
+            { type:'image', source:{ type:'base64', media_type:mimeType, data:base64 } },
+            { type:'text',  text:'このクレジットカードの券面画像を見て、カードの商品名・発行会社・ブランド・グレードを識別してください。日本のカードの場合は日本語で回答し、不明な項目は空文字列にしてください。' }
+          ]
+        }]
+      })
+    });
+    if(!res.ok){
+      const err = await res.json().catch(()=>({}));
+      if(res.status===401) localStorage.removeItem(LS_CLAUDE_KEY);
+      throw new Error(err.error?.message||`HTTP ${res.status}`);
+    }
+    const data = await res.json();
+    const text = data.content?.find(b=>b.type==='text')?.text;
+    if(!text) throw new Error('AI からの応答が空です');
+    const result = JSON.parse(text);
+    renderAIResult(result);
+    statusEl.style.display = 'none';
+  }catch(e){
+    statusEl.textContent = `AI エラー: ${e.message}`;
+    console.warn('AI identify error', e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+function renderAIResult(result){
+  const strip    = document.getElementById('ocr-strip');
+  const fieldsEl = document.getElementById('ocr-fields');
+  const prev = fieldsEl.querySelector('.ai-section');
+  if(prev) prev.remove();
+  const sec = document.createElement('div');
+  sec.className = 'ai-section';
+  sec.style.cssText = 'margin-top:5px;padding-top:5px;border-top:1px dashed var(--border2)';
+  let html = '<div class="ocr-strip-title" style="color:#4f46e5">🤖 AI 識別結果（クリックでフォームに反映）</div>';
+  if(result.cardName){
+    const n = result.cardName.replace(/'/g,"\\'");
+    const b = (result.brand||'').replace(/'/g,"\\'");
+    html += `<span class="ocr-tag" onclick="applyAICardName('${n}','${b}')" style="border-color:#a5b4fc">
+      <span class="ocr-tag-key" style="color:#4f46e5">カード名称:</span>
+      <span class="ocr-tag-val">${escHtml(result.cardName)}</span></span>`;
+  }
+  if(result.brand){
+    const b = result.brand.replace(/'/g,"\\'");
+    html += `<span class="ocr-tag" onclick="applyAIBrand('${b}')" style="border-color:#a5b4fc">
+      <span class="ocr-tag-key" style="color:#4f46e5">ブランド:</span>
+      <span class="ocr-tag-val">${escHtml(result.brand)}</span></span>`;
+  }
+  if(result.issuer){
+    html += `<span class="ocr-tag" style="border-color:#a5b4fc;cursor:default">
+      <span class="ocr-tag-key" style="color:#4f46e5">発行会社:</span>
+      <span class="ocr-tag-val">${escHtml(result.issuer)}</span></span>`;
+  }
+  sec.innerHTML = html;
+  fieldsEl.appendChild(sec);
+  strip.style.display = '';
+}
+
+function applyAICardName(name, brand){
+  if(name) document.getElementById('cm-nick').value = name;
+  const valid = ['Visa','Mastercard','JCB','American Express','Diners Club'];
+  if(brand && valid.includes(brand)) document.getElementById('cm-brand').value = brand;
+  toast('AI の識別結果を反映しました');
+  resetAutoLockTimer();
+}
+function applyAIBrand(brand){
+  const valid = ['Visa','Mastercard','JCB','American Express','Diners Club'];
+  if(valid.includes(brand)) document.getElementById('cm-brand').value = brand;
+  toast('ブランドを反映しました');
   resetAutoLockTimer();
 }
 
