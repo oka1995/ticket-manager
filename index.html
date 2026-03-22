@@ -426,6 +426,15 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <input id="cm-expiry" type="text" placeholder="MM/YY" maxlength="5"
         oninput="fmtExpiry(this)" autocomplete="off" inputmode="numeric" />
     </div>
+    <div class="mi">
+      <label>カード名義 🔒</label>
+      <input id="cm-holder" type="text" placeholder="TARO YAMADA" autocomplete="off" />
+    </div>
+    <div class="mi">
+      <label>CVV/CVC 🔒（任意）</label>
+      <input id="cm-cvv" type="password" placeholder="3〜4桁" maxlength="4"
+        autocomplete="off" inputmode="numeric" />
+    </div>
     <div class="mi full">
       <label>メモ</label>
       <input id="cm-memo" type="text" placeholder="任意のメモ" autocomplete="off" />
@@ -1283,8 +1292,10 @@ function renderCards(){
         **** **** **** ${escHtml(last4)}
       </div>
       <div class="cc-card-bottom">
-        <div><div class="cc-card-label">EXPIRES</div><div id="ccexp-${c['カードID']}" data-plain="${escHtml(s.expiry||'')}" data-shown="false">${s.expiry?'••/••':'—'}</div></div>
-        <div class="cc-card-expiry"><div class="cc-card-label">支払日</div><div>${escHtml(payday)}</div></div>
+        <div><div class="cc-card-label">CARD HOLDER</div><div class="cc-card-holder" id="ccholder-${c['カードID']}" data-plain="${escHtml(s.holderName||'')}" data-shown="false">${s.holderName?'••• •••••':'—'}</div></div>
+        <div class="cc-card-expiry"><div class="cc-card-label">EXPIRES</div><div id="ccexp-${c['カードID']}" data-plain="${escHtml(s.expiry||'')}" data-shown="false">${s.expiry?'••/••':'—'}</div></div>
+      </div>
+      <div style="margin-top:.5rem;font-size:10px;opacity:.65">支払日: ${escHtml(payday)}${s.cvv?'　CVV: 登録済':''}
       </div>
       ${c['メモ']?`<div class="cc-card-memo">${escHtml(c['メモ'])}</div>`:''}
       <div class="cc-card-actions">
@@ -1301,10 +1312,12 @@ function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
 
 function toggleCardDetails(cardId){
   const numEl = document.getElementById('ccnum-'+cardId);
+  const holderEl = document.getElementById('ccholder-'+cardId);
   const expEl = document.getElementById('ccexp-'+cardId);
   const shown = numEl.dataset.shown === 'true';
   if(!shown){
     numEl.textContent = numEl.dataset.plain || '—';
+    holderEl.textContent = holderEl.dataset.plain || '—';
     expEl.textContent = expEl.dataset.plain || '—';
     numEl.dataset.shown = 'true';
     // auto-hide after 15 seconds
@@ -1317,12 +1330,14 @@ function toggleCardDetails(cardId){
 
 function hideCardDetails(cardId){
   const numEl = document.getElementById('ccnum-'+cardId);
+  const holderEl = document.getElementById('ccholder-'+cardId);
   const expEl = document.getElementById('ccexp-'+cardId);
   if(!numEl) return;
   numEl.textContent = numEl.dataset.masked;
   numEl.dataset.shown = 'false';
-  const hasExp = expEl.dataset.plain;
-  expEl.textContent = hasExp ? '••/••' : '—';
+  holderEl.textContent = holderEl.dataset.plain ? '••• •••••' : '—';
+  holderEl.dataset.shown = 'false';
+  expEl.textContent = expEl.dataset.plain ? '••/••' : '—';
   expEl.dataset.shown = 'false';
 }
 
@@ -1341,7 +1356,7 @@ function openAddCardModal(){
   if(!_cryptoKey){toast('先にロックを解除してください');return;}
   _editCardId=null;
   document.getElementById('card-modal-title').textContent='カードを追加';
-  ['cm-nick','cm-number','cm-expiry','cm-memo'].forEach(id=>document.getElementById(id).value='');
+  ['cm-nick','cm-number','cm-holder','cm-expiry','cm-cvv','cm-memo'].forEach(id=>document.getElementById(id).value='');
   document.getElementById('cm-type').value='Visa';
   document.getElementById('cm-payday').value='';
   document.getElementById('card-modal-error').style.display='none';
@@ -1360,6 +1375,8 @@ function openEditCardModal(cardId){
   document.getElementById('cm-payday').value = c['支払日']||'';
   document.getElementById('cm-number').value = c._sensitive?.cardNumber||'';
   document.getElementById('cm-expiry').value = c._sensitive?.expiry||'';
+  document.getElementById('cm-holder').value = c._sensitive?.holderName||'';
+  document.getElementById('cm-cvv').value = c._sensitive?.cvv||'';
   document.getElementById('cm-memo').value = c['メモ']||'';
   document.getElementById('card-modal-error').style.display='none';
   document.getElementById('card-modal').style.display='flex';
@@ -1383,7 +1400,9 @@ async function saveCard(){
   if(number && !/^\d{13,19}$/.test(number)){errEl.textContent='カード番号は13〜19桁の数字で入力してください';errEl.style.display='';saving=false;return;}
   if(expiry && !/^\d{2}\/\d{2}$/.test(expiry)){errEl.textContent='有効期限は MM/YY の形式で入力してください';errEl.style.display='';saving=false;return;}
 
-  const sensitive = {cardNumber:number, expiry};
+  const holder = document.getElementById('cm-holder').value.trim().toUpperCase();
+  const cvv = document.getElementById('cm-cvv').value.trim();
+  const sensitive = {cardNumber:number, expiry, holderName:holder, cvv};
   const {cipher, iv} = await aesEncrypt(_cryptoKey, JSON.stringify(sensitive));
   const last4 = number.slice(-4)||'';
   const cardId = _editCardId||'cc'+Date.now();
