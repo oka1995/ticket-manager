@@ -209,10 +209,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <a href="javascript:void(0)" onclick="openScanFolder()" style="color:var(--blue)">📁 ScanSnap 保存先フォルダを開く</a>
       <button onclick="openScanFolderSettings()" title="フォルダURLを設定" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--text2);padding:0;line-height:1">⚙</button>
     </div>
-    <div id="ai-btn-wrap" style="display:none;gap:5px;align-items:center;margin-top:6px">
-      <button class="btn btn-ai btn-sm" id="ai-identify-btn" onclick="identifyCardWithAI()">🤖 AI でカードを特定</button>
-      <button class="btn btn-secondary btn-sm" onclick="openApiKeyModal()" title="Anthropic API キー設定" style="width:28px;padding:0">⚙</button>
-    </div>
+    <div id="ai-btn-wrap" style="display:none"></div>
     <div id="ocr-status" style="font-size:11px;color:var(--text2);margin-top:4px;display:none"></div>
     <div class="ocr-strip" id="ocr-strip">
       <div class="ocr-strip-title">OCR で読み取った情報（クリックでフォームに反映）</div>
@@ -296,7 +293,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
   <div id="bulk-list-wrap" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
       <span id="bulk-file-count" style="font-size:12px;color:var(--text2)"></span>
-      <button class="btn btn-ai btn-sm" id="bulk-ai-all-btn" onclick="runAIAllBulk()">🤖 全て AI 識別</button>
+      <button class="btn btn-secondary btn-sm" id="bulk-ai-all-btn" onclick="runAIAllBulk()">🔍 全て OCR</button>
     </div>
     <div class="bulk-list" id="bulk-list"></div>
   </div>
@@ -308,20 +305,6 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 </div>
 
 <!-- Anthropic API キー設定モーダル -->
-<div id="apikey-modal" style="display:none" class="modal-overlay">
-<div class="modal" style="max-width:420px">
-  <h2>🤖 Anthropic API キー設定</h2>
-  <p style="font-size:12px;color:var(--text2);margin-bottom:1rem">カード識別に Claude AI（claude-opus-4-6）を使用します。<a href="https://console.anthropic.com/" target="_blank" rel="noopener" style="color:var(--blue)">Anthropic Console</a> で発行した API キーを入力してください。キーはこのブラウザのローカルストレージのみに保存されます。</p>
-  <div><label style="font-size:11px;color:var(--text2);display:block;margin-bottom:3px">API キー</label>
-    <input id="apikey-input" type="password" placeholder="sk-ant-..." autocomplete="off"
-      onkeydown="if(event.key==='Enter')saveApiKey()" /></div>
-  <div id="apikey-error" style="font-size:12px;color:var(--red);margin-top:6px;display:none"></div>
-  <div class="mactions">
-    <button class="btn btn-secondary" onclick="closeApiKeyModal()">キャンセル</button>
-    <button class="btn btn-primary" onclick="saveApiKey()">保存して続行</button>
-  </div>
-</div>
-</div>
 
 <div id="scanfolder-modal" style="display:none" class="modal-overlay">
 <div class="modal" style="max-width:420px">
@@ -888,8 +871,31 @@ function handleImgFileBack(file){
     prev.src = _imgDataUrlBack;
     prev.style.display = '';
     document.getElementById('img-zone-text-back').textContent = file.name;
+    startOCRBack(_imgDataUrlBack);
   };
   reader.readAsDataURL(file);
+}
+
+async function startOCRBack(dataUrl){
+  try{
+    const worker = await Tesseract.createWorker('eng');
+    const { data: { text } } = await worker.recognize(dataUrl);
+    await worker.terminate();
+    const result = parseCardFromOCR(text, {backSide:true});
+    if(result.cvv){
+      const fieldsEl = document.getElementById('ocr-fields');
+      const strip    = document.getElementById('ocr-strip');
+      // 既存に cvv タグがあれば更新、なければ追加
+      const existing = fieldsEl.querySelector('[data-ocr-key="cvv"]');
+      const cvvHtml = `<span class="ocr-tag" data-ocr-key="cvv"
+        onclick="applyOCRField('cvv','${result.cvv}')" title="クリックでフォームに反映">
+        <span class="ocr-tag-key">セキュリティコード:</span>
+        <span class="ocr-tag-val">${result.cvv}</span></span>`;
+      if(existing){ existing.outerHTML = cvvHtml; }
+      else { fieldsEl.insertAdjacentHTML('beforeend', cvvHtml); }
+      strip.style.display = '';
+    }
+  }catch(e){ console.warn('OCR back error', e); }
 }
 
 function handleImgFile(file){
@@ -932,7 +938,7 @@ async function startOCR(dataUrl){
   }
 }
 
-function parseCardFromOCR(text){
+function parseCardFromOCR(text, {backSide=false}={}){
   const result = {};
   // 有効期限 MM/YY or MM/YYYY
   const expM = text.match(/\b(0[1-9]|1[0-2])\s*[\/\-]\s*(\d{2,4})\b/);
@@ -954,12 +960,21 @@ function parseCardFromOCR(text){
       result.holderName = t.trim(); break;
     }
   }
+  // セキュリティコード（CVV/CVC）: ラベル付き3〜4桁、または裏面の独立した3〜4桁
+  const cvvLabeled = text.match(/(?:cvv|cvc|csc|security\s*code)[^\d]*(\d{3,4})/i);
+  if(cvvLabeled){
+    result.cvv = cvvLabeled[1];
+  } else if(backSide){
+    // 裏面として指定された場合: 独立した3桁数字をCVVとして取得（カード番号4桁は除外）
+    const standalone = text.match(/(?<!\d)(\d{3})(?!\d)/);
+    if(standalone) result.cvv = standalone[1];
+  }
   return result;
 }
 
 function renderOCRFields(result){
   const LABELS = {
-    brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人'
+    brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'
   };
   const fieldsEl = document.getElementById('ocr-fields');
   fieldsEl.innerHTML = Object.entries(result)
@@ -974,17 +989,19 @@ function renderOCRFields(result){
 }
 
 function applyOCRField(key, val){
+  const LABELS = {brand:'ブランド', cardNumber:'カード番号', expiry:'有効期限', holderName:'名義人', cvv:'セキュリティコード'};
   if(key==='brand'){
     document.getElementById('cm-brand').value = val;
   } else if(key==='cardNumber'){
-    const el = document.getElementById('cm-number');
-    el.value = val.replace(/(\d{4})/g,'$1 ').trim();
+    document.getElementById('cm-number').value = val.replace(/(\d{4})/g,'$1 ').trim();
   } else if(key==='expiry'){
     document.getElementById('cm-expiry').value = val;
   } else if(key==='holderName'){
     document.getElementById('cm-holder').value = val;
+  } else if(key==='cvv'){
+    document.getElementById('cm-cvv').value = val;
   }
-  toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
+  toast(`${LABELS[key]||key} を反映しました`);
   resetAutoLockTimer();
 }
 
@@ -1110,9 +1127,9 @@ function renderBulkList(){
           </select>
         </div>
         <div class="bulk-ai-row">
-          <button class="btn btn-ai btn-sm" id="bulk-ai-btn-${i}" onclick="runAISingleBulk(${i})"
-            style="font-size:11px;height:24px;padding:0 8px">🤖 識別</button>
-          <span class="bulk-status" id="bulk-status-${i}">未識別</span>
+          <button class="btn btn-secondary btn-sm" id="bulk-ai-btn-${i}" onclick="runOCRSingleBulk(${i})"
+            style="font-size:11px;height:24px;padding:0 8px">🔍 OCR</button>
+          <span class="bulk-status" id="bulk-status-${i}">未取得</span>
         </div>
       </div>
     </div>`;
@@ -1132,84 +1149,71 @@ function updateBulkSaveBtn(){
   btn.textContent    = `${n} 枚を追加`;
 }
 
-async function runAISingleBulk(i){
-  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
-  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
+async function runOCRSingleBulk(i){
   const f        = _bulkFiles[i];
   const btn      = document.getElementById(`bulk-ai-btn-${i}`);
   const statusEl = document.getElementById(`bulk-status-${i}`);
   btn.disabled = true;
-  statusEl.textContent = '識別中…'; statusEl.className = 'bulk-status running';
+  statusEl.textContent = '読取中…'; statusEl.className = 'bulk-status running';
   try{
-    const imgRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.front.fileId})});
-    const imgData = await imgRes.json();
-    if(!imgData.ok) throw new Error(imgData.error);
+    // 表面OCR: カード番号・有効期限・ブランド
+    const frontRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.front.fileId})});
+    const frontData = await frontRes.json();
+    if(!frontData.ok) throw new Error(frontData.error);
+    const frontDataUrl = `data:${frontData.mimeType};base64,${frontData.base64}`;
+    const frontWorker  = await Tesseract.createWorker('eng');
+    const { data: { text: frontText } } = await frontWorker.recognize(frontDataUrl);
+    await frontWorker.terminate();
+    const frontResult = parseCardFromOCR(frontText);
 
-    const aiRes = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json','x-api-key':apiKey,
-               'anthropic-version':'2023-06-01','anthropic-dangerous-allow-browser':'true'},
-      body:JSON.stringify({
-        model:'claude-opus-4-6', max_tokens:512,
-        tools:[{
-          name:'identify_card',
-          description:'クレジットカードの情報を識別して返す',
-          input_schema:{
-            type:'object',
-            properties:{
-              cardName:{type:'string',description:'カードの商品名（例: JAL カード CLUB-Aゴールドカード）'},
-              issuer:  {type:'string',description:'発行会社（例: JALカード株式会社）'},
-              brand:   {type:'string',description:'国際ブランド。Visa / Mastercard / JCB / American Express / Diners Club のいずれか'},
-              grade:   {type:'string',description:'グレード（例: ゴールド、プラチナ、一般）'}
-            },
-            required:['cardName','issuer','brand','grade'],
-            additionalProperties:false
-          }
-        }],
-        tool_choice:{type:'tool',name:'identify_card'},
-        messages:[{role:'user',content:[
-          {type:'image',source:{type:'base64',media_type:imgData.mimeType,data:imgData.base64}},
-          {type:'text',text:'このクレジットカードの券面画像を見て、カードの商品名・発行会社・ブランド・グレードを識別してください。日本のカードの場合は日本語で回答し、不明な項目は空文字列にしてください。'}
-        ]}]
-      })
-    });
-    if(!aiRes.ok){
-      const err = await aiRes.json().catch(()=>({}));
-      if(aiRes.status===401) localStorage.removeItem(LS_CLAUDE_KEY);
-      throw new Error(err.error?.message||`HTTP ${aiRes.status}`);
+    // 裏面OCR: CVV
+    let cvv = '';
+    if(f.back){
+      const backRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.back.fileId})});
+      const backData = await backRes.json();
+      if(backData.ok){
+        const backDataUrl = `data:${backData.mimeType};base64,${backData.base64}`;
+        const backWorker  = await Tesseract.createWorker('eng');
+        const { data: { text: backText } } = await backWorker.recognize(backDataUrl);
+        await backWorker.terminate();
+        cvv = parseCardFromOCR(backText, {backSide:true}).cvv || '';
+      }
     }
-    const data   = await aiRes.json();
-    const toolUse = data.content?.find(b=>b.type==='tool_use');
-    if(!toolUse) throw new Error('応答が空です');
-    const result = toolUse.input;
 
-    _bulkFiles[i].cardName = result.cardName || '';
     const validBrands = ['Visa','Mastercard','JCB','American Express','Diners Club'];
-    if(result.brand && validBrands.includes(result.brand)) _bulkFiles[i].brand = result.brand;
+    if(frontResult.brand && validBrands.includes(frontResult.brand)){
+      _bulkFiles[i].brand = frontResult.brand;
+      document.getElementById(`bulk-row-${i}`).querySelector('select').value = frontResult.brand;
+    }
+    _bulkFiles[i].ocrCardNumber  = frontResult.cardNumber  || '';
+    _bulkFiles[i].ocrExpiry      = frontResult.expiry      || '';
+    _bulkFiles[i].ocrHolderName  = frontResult.holderName  || '';
+    _bulkFiles[i].ocrCvv         = cvv;
     _bulkFiles[i].aiDone = true;
 
-    const row = document.getElementById(`bulk-row-${i}`);
-    row.querySelector('input[type=text]').value = _bulkFiles[i].cardName;
-    row.querySelector('select').value           = _bulkFiles[i].brand;
-    statusEl.textContent = '識別完了'; statusEl.className = 'bulk-status done';
+    const parts = [
+      frontResult.cardNumber ? `番号末尾 ${frontResult.last4||'????'}` : null,
+      frontResult.expiry     ? `期限 ${frontResult.expiry}` : null,
+      cvv                    ? 'CVV取得済' : null,
+    ].filter(Boolean);
+    statusEl.textContent = parts.length ? parts.join(' / ') : '読取完了';
+    statusEl.className = 'bulk-status done';
     updateBulkSaveBtn();
   }catch(e){
     statusEl.textContent = 'エラー'; statusEl.className = 'bulk-status error';
     statusEl.title = e.message;
-    console.warn('AI bulk error', e);
+    console.warn('OCR bulk error', e);
   }finally{
     btn.disabled = false;
   }
 }
 
 async function runAIAllBulk(){
-  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
-  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
   const btn = document.getElementById('bulk-ai-all-btn');
   btn.disabled = true;
   for(let i=0;i<_bulkFiles.length;i++){
     if(_bulkFiles[i].aiDone) continue;
-    await runAISingleBulk(i);
+    await runOCRSingleBulk(i);
   }
   btn.disabled = false;
 }
@@ -1223,7 +1227,12 @@ async function saveBulkCards(){
   try{
     for(const f of toSave){
       const cardId = 'cc' + Date.now() + Math.random().toString(36).slice(2,6);
-      const {cipher,iv} = await aesEncrypt(_cryptoKey, JSON.stringify({cardNumber:'',expiry:'',holderName:'',cvv:''}));
+      const {cipher,iv} = await aesEncrypt(_cryptoKey, JSON.stringify({
+        cardNumber: f.ocrCardNumber||'',
+        expiry:     f.ocrExpiry||'',
+        holderName: f.ocrHolderName||'',
+        cvv:        f.ocrCvv||''
+      }));
       await apiAppend(CARD_SHEET, cardToRow({
         'カードID':cardId, 'カード名称':f.cardName.trim(), 'ブランド':f.brand,
         '末尾4桁':'', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'',
@@ -1275,140 +1284,6 @@ function saveScanFolder(){
 // ================================================================
 // Claude AI カード識別
 // ================================================================
-const LS_CLAUDE_KEY = 'cc_claude_api_key';
-let _aiPending = false;
-
-function openApiKeyModal(){
-  document.getElementById('apikey-input').value = localStorage.getItem(LS_CLAUDE_KEY)||'';
-  document.getElementById('apikey-error').style.display = 'none';
-  document.getElementById('apikey-modal').style.display = 'flex';
-  setTimeout(()=>document.getElementById('apikey-input').focus(), 80);
-}
-function closeApiKeyModal(){
-  _aiPending = false;
-  document.getElementById('apikey-modal').style.display = 'none';
-}
-function saveApiKey(){
-  const key = document.getElementById('apikey-input').value.trim();
-  const errEl = document.getElementById('apikey-error');
-  if(!key){ errEl.textContent='API キーを入力してください'; errEl.style.display=''; return; }
-  localStorage.setItem(LS_CLAUDE_KEY, key);
-  document.getElementById('apikey-modal').style.display = 'none';
-  if(_aiPending){ _aiPending = false; identifyCardWithAI(); }
-}
-
-async function identifyCardWithAI(){
-  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
-  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
-  if(!_imgDataUrl) return;
-  const btn      = document.getElementById('ai-identify-btn');
-  const statusEl = document.getElementById('ocr-status');
-  btn.disabled   = true;
-  statusEl.textContent = '🤖 AI 解析中…';
-  statusEl.style.display = '';
-  try{
-    const base64   = _imgDataUrl.split(',')[1];
-    const mimeType = _imgFile?.type || 'image/jpeg';
-    const res = await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{
-        'Content-Type':'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version':'2023-06-01',
-        'anthropic-dangerous-allow-browser':'true'
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-6',
-        max_tokens: 512,
-        tools:[{
-          name:'identify_card',
-          description:'クレジットカードの情報を識別して返す',
-          input_schema:{
-            type:'object',
-            properties:{
-              cardName:{ type:'string', description:'カードの商品名（例: 三井住友カード ゴールド(NL)）' },
-              issuer:  { type:'string', description:'発行会社（例: 三井住友カード）' },
-              brand:   { type:'string', description:'Visa / Mastercard / JCB / American Express / Diners Club のいずれか' },
-              grade:   { type:'string', description:'ゴールド、プラチナ、スタンダードなど（不明なら空）' }
-            },
-            required:['cardName','issuer','brand','grade'],
-            additionalProperties:false
-          }
-        }],
-        tool_choice:{type:'tool',name:'identify_card'},
-        messages:[{
-          role:'user',
-          content:[
-            { type:'image', source:{ type:'base64', media_type:mimeType, data:base64 } },
-            { type:'text',  text:'このクレジットカードの券面画像を見て、カードの商品名・発行会社・ブランド・グレードを識別してください。日本のカードの場合は日本語で回答し、不明な項目は空文字列にしてください。' }
-          ]
-        }]
-      })
-    });
-    if(!res.ok){
-      const err = await res.json().catch(()=>({}));
-      if(res.status===401) localStorage.removeItem(LS_CLAUDE_KEY);
-      throw new Error(err.error?.message||`HTTP ${res.status}`);
-    }
-    const data = await res.json();
-    const toolUse = data.content?.find(b=>b.type==='tool_use');
-    if(!toolUse) throw new Error('AI からの応答が空です');
-    const result = toolUse.input;
-    renderAIResult(result);
-    statusEl.style.display = 'none';
-  }catch(e){
-    statusEl.textContent = `AI エラー: ${e.message}`;
-    console.warn('AI identify error', e);
-  }finally{
-    btn.disabled = false;
-  }
-}
-
-function renderAIResult(result){
-  const strip    = document.getElementById('ocr-strip');
-  const fieldsEl = document.getElementById('ocr-fields');
-  const prev = fieldsEl.querySelector('.ai-section');
-  if(prev) prev.remove();
-  const sec = document.createElement('div');
-  sec.className = 'ai-section';
-  sec.style.cssText = 'margin-top:5px;padding-top:5px;border-top:1px dashed var(--border2)';
-  let html = '<div class="ocr-strip-title" style="color:#4f46e5">🤖 AI 識別結果（クリックでフォームに反映）</div>';
-  if(result.cardName){
-    const n = result.cardName.replace(/'/g,"\\'");
-    const b = (result.brand||'').replace(/'/g,"\\'");
-    html += `<span class="ocr-tag" onclick="applyAICardName('${n}','${b}')" style="border-color:#a5b4fc">
-      <span class="ocr-tag-key" style="color:#4f46e5">カード名称:</span>
-      <span class="ocr-tag-val">${escHtml(result.cardName)}</span></span>`;
-  }
-  if(result.brand){
-    const b = result.brand.replace(/'/g,"\\'");
-    html += `<span class="ocr-tag" onclick="applyAIBrand('${b}')" style="border-color:#a5b4fc">
-      <span class="ocr-tag-key" style="color:#4f46e5">ブランド:</span>
-      <span class="ocr-tag-val">${escHtml(result.brand)}</span></span>`;
-  }
-  if(result.issuer){
-    html += `<span class="ocr-tag" style="border-color:#a5b4fc;cursor:default">
-      <span class="ocr-tag-key" style="color:#4f46e5">発行会社:</span>
-      <span class="ocr-tag-val">${escHtml(result.issuer)}</span></span>`;
-  }
-  sec.innerHTML = html;
-  fieldsEl.appendChild(sec);
-  strip.style.display = '';
-}
-
-function applyAICardName(name, brand){
-  if(name) document.getElementById('cm-nick').value = name;
-  const valid = ['Visa','Mastercard','JCB','American Express','Diners Club'];
-  if(brand && valid.includes(brand)) document.getElementById('cm-brand').value = brand;
-  toast('AI の識別結果を反映しました');
-  resetAutoLockTimer();
-}
-function applyAIBrand(brand){
-  const valid = ['Visa','Mastercard','JCB','American Express','Diners Club'];
-  if(valid.includes(brand)) document.getElementById('cm-brand').value = brand;
-  toast('ブランドを反映しました');
-  resetAutoLockTimer();
-}
 
 // ================================================================
 // 初期化
