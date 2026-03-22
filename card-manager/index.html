@@ -56,14 +56,14 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .cc-card{border-radius:16px;padding:1.3rem 1.5rem;color:#fff;position:relative;overflow:hidden;cursor:default;box-shadow:0 4px 20px rgba(0,0,0,.18)}
 .cc-card::before{content:'';position:absolute;top:-40px;right:-40px;width:160px;height:160px;border-radius:50%;background:rgba(255,255,255,.07)}
 .cc-card::after{content:'';position:absolute;bottom:-55px;left:-20px;width:190px;height:190px;border-radius:50%;background:rgba(255,255,255,.04)}
-.cc-card-brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.7;margin-bottom:.5rem}
-.cc-card-name{font-size:14px;font-weight:600;margin-bottom:.7rem}
-.cc-card-number{font-size:15px;font-weight:500;letter-spacing:.2em;margin-bottom:1rem;font-family:"Courier New",monospace;position:relative;z-index:1}
-.cc-card-bottom{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;opacity:.9;position:relative;z-index:1}
+.cc-card-brand{font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;opacity:.7;margin-bottom:.5rem;position:relative;z-index:2}
+.cc-card-name{font-size:14px;font-weight:600;margin-bottom:.7rem;position:relative;z-index:2}
+.cc-card-number{font-size:15px;font-weight:500;letter-spacing:.2em;margin-bottom:1rem;font-family:"Courier New",monospace;position:relative;z-index:2}
+.cc-card-bottom{display:flex;justify-content:space-between;align-items:flex-end;font-size:11px;opacity:.9;position:relative;z-index:2}
 .cc-card-label{opacity:.6;font-size:10px;letter-spacing:.05em;text-transform:uppercase;margin-bottom:2px}
 .cc-card-expiry{text-align:right}
-.cc-card-info{font-size:10px;opacity:.55;margin-top:.5rem;position:relative;z-index:1}
-.cc-card-actions{display:flex;gap:6px;margin-top:.9rem;position:relative;z-index:1}
+.cc-card-info{font-size:10px;opacity:.55;margin-top:.5rem;position:relative;z-index:2}
+.cc-card-actions{display:flex;gap:6px;margin-top:.9rem;position:relative;z-index:2}
 .cc-btn{border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.1);color:#fff;border-radius:5px;padding:0 10px;height:27px;font-size:11px;cursor:pointer;font-family:inherit;font-weight:500;transition:background .15s}
 .cc-btn:hover{background:rgba(255,255,255,.22)}
 .cc-btn.danger{border-color:rgba(255,100,100,.5);color:rgba(255,160,160,1)}
@@ -85,7 +85,8 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .ocr-tag:hover{border-color:var(--blue);background:#EBF2FB}
 .ocr-tag-key{color:var(--text2)}
 .ocr-tag-val{font-weight:600;color:var(--text)}
-.cc-card-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:16px;opacity:.55}
+.cc-card-img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:16px;opacity:.55;z-index:0}
+.cc-card-img-overlay{position:absolute;inset:0;background:rgba(0,0,0,.52);border-radius:16px;z-index:1;pointer-events:none}
 /* AI identify */
 .btn-ai{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none}
 .btn-ai:hover{opacity:.85}
@@ -495,6 +496,27 @@ const BRAND_COLORS = {
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
+function orientCardImg(img){
+  if(img.naturalHeight <= img.naturalWidth) return; // 横長はそのまま
+  requestAnimationFrame(()=>{
+    const card = img.closest('.cc-card');
+    if(!card) return;
+    const cw = card.offsetWidth, ch = card.offsetHeight;
+    if(!cw || !ch) return;
+    // 縦長画像を90°回転してカバー
+    const scale = Math.max(cw / img.naturalHeight, ch / img.naturalWidth);
+    const w = img.naturalWidth * scale, h = img.naturalHeight * scale;
+    img.style.objectFit  = 'none';
+    img.style.inset      = 'auto';
+    img.style.width      = w + 'px';
+    img.style.height     = h + 'px';
+    img.style.left       = (cw - w) / 2 + 'px';
+    img.style.top        = (ch - h) / 2 + 'px';
+    img.style.transform  = 'rotate(90deg)';
+    img.style.transformOrigin = 'center center';
+  });
+}
+
 function renderCards(){
   const grid  = document.getElementById('cc-grid');
   const empty = document.getElementById('cc-empty');
@@ -506,12 +528,13 @@ function renderCards(){
     const s      = c._sensitive||{};
     const fileId = c['画像DriveID']||'';
     const bg     = BRAND_COLORS[c['ブランド']] || 'linear-gradient(135deg,#1a1a2e 0%,#0f3460 100%)';
-    const imgBg  = fileId
-      ? `background:linear-gradient(rgba(0,0,0,.52),rgba(0,0,0,.52)),url('https://drive.google.com/thumbnail?id=${escHtml(fileId)}&sz=w600') center/cover`
-      : `background:${bg}`;
+    const imgEl  = fileId
+      ? `<img class="cc-card-img" src="https://drive.google.com/thumbnail?id=${escHtml(fileId)}&sz=w600" alt="" loading="lazy" onload="orientCardImg(this)"><div class="cc-card-img-overlay"></div>`
+      : '';
     const last4  = c['末尾4桁']||'????';
     const payday = c['支払日'] ? (c['支払日']==='末日'?'毎月末日':`毎月${c['支払日']}日`) : '未設定';
-    return `<div class="cc-card" style="${imgBg}">
+    return `<div class="cc-card" style="background:${bg}">
+  ${imgEl}
   <div class="cc-card-brand">${escHtml(c['ブランド']||'')}</div>
   <div class="cc-card-name">${escHtml(c['カード名称']||'')}</div>
   <div class="cc-card-number"
