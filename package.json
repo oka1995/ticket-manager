@@ -1,0 +1,11 @@
+{
+  "name": "ticket-manager-setup",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "setup": "node setup.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
