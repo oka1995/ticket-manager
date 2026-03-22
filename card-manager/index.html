@@ -1151,11 +1151,22 @@ async function runAISingleBulk(i){
                'anthropic-version':'2023-06-01','anthropic-dangerous-allow-browser':'true'},
       body:JSON.stringify({
         model:'claude-opus-4-6', max_tokens:512,
-        output_config:{format:{type:'json_schema',json_schema:{name:'card_identification',schema:{
-          type:'object',
-          properties:{cardName:{type:'string'},issuer:{type:'string'},brand:{type:'string'},grade:{type:'string'}},
-          required:['cardName','issuer','brand','grade'],additionalProperties:false
-        }}}},
+        tools:[{
+          name:'identify_card',
+          description:'クレジットカードの情報を識別して返す',
+          input_schema:{
+            type:'object',
+            properties:{
+              cardName:{type:'string',description:'カードの商品名（例: JAL カード CLUB-Aゴールドカード）'},
+              issuer:  {type:'string',description:'発行会社（例: JALカード株式会社）'},
+              brand:   {type:'string',description:'国際ブランド。Visa / Mastercard / JCB / American Express / Diners Club のいずれか'},
+              grade:   {type:'string',description:'グレード（例: ゴールド、プラチナ、一般）'}
+            },
+            required:['cardName','issuer','brand','grade'],
+            additionalProperties:false
+          }
+        }],
+        tool_choice:{type:'tool',name:'identify_card'},
         messages:[{role:'user',content:[
           {type:'image',source:{type:'base64',media_type:imgData.mimeType,data:imgData.base64}},
           {type:'text',text:'このクレジットカードの券面画像を見て、カードの商品名・発行会社・ブランド・グレードを識別してください。日本のカードの場合は日本語で回答し、不明な項目は空文字列にしてください。'}
@@ -1168,9 +1179,9 @@ async function runAISingleBulk(i){
       throw new Error(err.error?.message||`HTTP ${aiRes.status}`);
     }
     const data   = await aiRes.json();
-    const text   = data.content?.find(b=>b.type==='text')?.text;
-    if(!text) throw new Error('応答が空です');
-    const result = JSON.parse(text);
+    const toolUse = data.content?.find(b=>b.type==='tool_use');
+    if(!toolUse) throw new Error('応答が空です');
+    const result = toolUse.input;
 
     _bulkFiles[i].cardName = result.cardName || '';
     const validBrands = ['Visa','Mastercard','JCB','American Express','Diners Club'];
@@ -1309,25 +1320,22 @@ async function identifyCardWithAI(){
       body: JSON.stringify({
         model: 'claude-opus-4-6',
         max_tokens: 512,
-        output_config:{
-          format:{
-            type:'json_schema',
-            json_schema:{
-              name:'card_identification',
-              schema:{
-                type:'object',
-                properties:{
-                  cardName:{ type:'string', description:'カードの商品名（例: 三井住友カード ゴールド(NL)）' },
-                  issuer:  { type:'string', description:'発行会社（例: 三井住友カード）' },
-                  brand:   { type:'string', description:'Visa / Mastercard / JCB / American Express / Diners Club / その他' },
-                  grade:   { type:'string', description:'ゴールド、プラチナ、スタンダードなど（不明なら空）' }
-                },
-                required:['cardName','issuer','brand','grade'],
-                additionalProperties:false
-              }
-            }
+        tools:[{
+          name:'identify_card',
+          description:'クレジットカードの情報を識別して返す',
+          input_schema:{
+            type:'object',
+            properties:{
+              cardName:{ type:'string', description:'カードの商品名（例: 三井住友カード ゴールド(NL)）' },
+              issuer:  { type:'string', description:'発行会社（例: 三井住友カード）' },
+              brand:   { type:'string', description:'Visa / Mastercard / JCB / American Express / Diners Club のいずれか' },
+              grade:   { type:'string', description:'ゴールド、プラチナ、スタンダードなど（不明なら空）' }
+            },
+            required:['cardName','issuer','brand','grade'],
+            additionalProperties:false
           }
-        },
+        }],
+        tool_choice:{type:'tool',name:'identify_card'},
         messages:[{
           role:'user',
           content:[
@@ -1343,9 +1351,9 @@ async function identifyCardWithAI(){
       throw new Error(err.error?.message||`HTTP ${res.status}`);
     }
     const data = await res.json();
-    const text = data.content?.find(b=>b.type==='text')?.text;
-    if(!text) throw new Error('AI からの応答が空です');
-    const result = JSON.parse(text);
+    const toolUse = data.content?.find(b=>b.type==='tool_use');
+    if(!toolUse) throw new Error('AI からの応答が空です');
+    const result = toolUse.input;
     renderAIResult(result);
     statusEl.style.display = 'none';
   }catch(e){
