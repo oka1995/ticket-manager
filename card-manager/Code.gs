@@ -26,6 +26,36 @@ function handle(e) {
       rowIndex = body.rowIndex;
       values   = body.values;
 
+      // ---- Cloud Vision OCR ----
+      if (action === 'ocrImage') {
+        const apiKey = PropertiesService.getScriptProperties().getProperty('VISION_API_KEY');
+        if (!apiKey) throw new Error('スクリプトプロパティに VISION_API_KEY を設定してください');
+
+        let base64 = body.base64;
+        if (!base64 && body.fileId) {
+          const file = DriveApp.getFileById(body.fileId);
+          try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e2) {}
+          base64 = Utilities.base64Encode(file.getBlob().getBytes());
+        }
+
+        const visionRes = UrlFetchApp.fetch(
+          'https://vision.googleapis.com/v1/images:annotate?key=' + apiKey,
+          {
+            method: 'post',
+            contentType: 'application/json',
+            payload: JSON.stringify({
+              requests: [{ image: { content: base64 }, features: [{ type: 'TEXT_DETECTION', maxResults: 1 }] }]
+            })
+          }
+        );
+        const visionJson = JSON.parse(visionRes.getContentText());
+        const text = visionJson.responses?.[0]?.fullTextAnnotation?.text
+                  || visionJson.responses?.[0]?.textAnnotations?.[0]?.description
+                  || '';
+        out.setContent(JSON.stringify({ ok: true, text }));
+        return out;
+      }
+
       // ---- 画像アップロード ----
       if (action === 'uploadImage') {
         const blob = Utilities.newBlob(

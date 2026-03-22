@@ -4,7 +4,6 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>カード管理</title>
-<script src="https://unpkg.com/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -496,24 +495,6 @@ const BRAND_COLORS = {
 
 function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-// 縦長画像をOCR用に90°回転してcanvasのDataURLとして返す
-function prepareOCRDataUrl(dataUrl){
-  return new Promise(resolve=>{
-    const img = new Image();
-    img.onload = ()=>{
-      if(img.naturalHeight <= img.naturalWidth){ resolve(dataUrl); return; }
-      const canvas = document.createElement('canvas');
-      canvas.width  = img.naturalHeight;
-      canvas.height = img.naturalWidth;
-      const ctx = canvas.getContext('2d');
-      ctx.translate(img.naturalHeight / 2, img.naturalWidth / 2);
-      ctx.rotate(Math.PI / 2);
-      ctx.drawImage(img, -img.naturalWidth / 2, -img.naturalHeight / 2);
-      resolve(canvas.toDataURL('image/jpeg', 0.95));
-    };
-    img.src = dataUrl;
-  });
-}
 
 function orientCardImg(img){
   if(img.naturalHeight <= img.naturalWidth) return; // 横長はそのまま
@@ -917,11 +898,11 @@ function handleImgFileBack(file){
 
 async function startOCRBack(dataUrl){
   try{
-    const ocrDataUrl = await prepareOCRDataUrl(dataUrl);
-    const worker = await Tesseract.createWorker('eng');
-    const { data: { text } } = await worker.recognize(ocrDataUrl);
-    await worker.terminate();
-    const result = parseCardFromOCR(text, {backSide:true});
+    const base64 = dataUrl.split(',')[1];
+    const res  = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ocrImage', base64})});
+    const json = await res.json();
+    if(!json.ok) return;
+    const result = parseCardFromOCR(json.text, {backSide:true});
     if(result.cvv){
       const fieldsEl = document.getElementById('ocr-fields');
       const strip    = document.getElementById('ocr-strip');
@@ -961,11 +942,11 @@ async function startOCR(dataUrl){
   statusEl.style.display = '';
   statusEl.textContent = 'OCR 解析中…';
   try{
-    const ocrDataUrl = await prepareOCRDataUrl(dataUrl);
-    const worker = await Tesseract.createWorker('eng');
-    const { data: { text } } = await worker.recognize(ocrDataUrl);
-    await worker.terminate();
-    const result = parseCardFromOCR(text);
+    const base64 = dataUrl.split(',')[1];
+    const res  = await fetch(GAS_URL, {method:'POST', body:JSON.stringify({action:'ocrImage', base64})});
+    const json = await res.json();
+    if(!json.ok) throw new Error(json.error);
+    const result = parseCardFromOCR(json.text);
     if(Object.keys(result).length){
       renderOCRFields(result);
       stripEl.style.display = '';
@@ -1205,28 +1186,18 @@ async function runOCRSingleBulk(i){
   statusEl.textContent = '読取中…'; statusEl.className = 'bulk-status running';
   try{
     // 表面OCR: カード番号・有効期限・ブランド
-    const frontRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.front.fileId})});
-    const frontData = await frontRes.json();
-    if(!frontData.ok) throw new Error(frontData.error);
-    const frontDataUrl    = `data:${frontData.mimeType};base64,${frontData.base64}`;
-    const frontOCRDataUrl = await prepareOCRDataUrl(frontDataUrl);
-    const frontWorker  = await Tesseract.createWorker('eng');
-    const { data: { text: frontText } } = await frontWorker.recognize(frontOCRDataUrl);
-    await frontWorker.terminate();
-    const frontResult = parseCardFromOCR(frontText);
+    const frontOcrRes = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'ocrImage', fileId:f.front.fileId})});
+    const frontOcrJson = await frontOcrRes.json();
+    if(!frontOcrJson.ok) throw new Error(frontOcrJson.error);
+    const frontResult = parseCardFromOCR(frontOcrJson.text);
 
     // 裏面OCR: CVV
     let cvv = '';
     if(f.back){
-      const backRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.back.fileId})});
-      const backData = await backRes.json();
-      if(backData.ok){
-        const backDataUrl    = `data:${backData.mimeType};base64,${backData.base64}`;
-        const backOCRDataUrl = await prepareOCRDataUrl(backDataUrl);
-        const backWorker  = await Tesseract.createWorker('eng');
-        const { data: { text: backText } } = await backWorker.recognize(backOCRDataUrl);
-        await backWorker.terminate();
-        cvv = parseCardFromOCR(backText, {backSide:true}).cvv || '';
+      const backOcrRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'ocrImage', fileId:f.back.fileId})});
+      const backOcrJson = await backOcrRes.json();
+      if(backOcrJson.ok){
+        cvv = parseCardFromOCR(backOcrJson.text, {backSide:true}).cvv || '';
       }
     }
 
