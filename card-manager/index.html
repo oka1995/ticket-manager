@@ -1048,12 +1048,21 @@ async function saveBulkCards(){
 // ScanSnap 保存先フォルダ
 // ================================================================
 async function openScanFolder(){
+  // ポップアップブロック回避: ユーザージェスチャー中に先にウィンドウを開く
+  const win = window.open('', '_blank');
   try{
     const res  = await fetch(`${GAS_URL}?action=getImgFolderUrl`);
     const json = await res.json();
-    if(json.ok) window.open(json.folderUrl, '_blank');
-    else toast('フォルダ取得エラー: ' + json.error);
-  }catch(e){ toast('フォルダを開けませんでした'); }
+    if(json.ok){
+      win.location.href = json.folderUrl;
+    } else {
+      win.close();
+      toast('フォルダ取得エラー: ' + json.error);
+    }
+  }catch(e){
+    win.close();
+    toast('フォルダを開けませんでした: ' + e.message);
+  }
 }
 
 // ================================================================
