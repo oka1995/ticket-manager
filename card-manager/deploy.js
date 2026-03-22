@@ -38,15 +38,17 @@ async function main() {
   console.log('  カード管理 GAS デプロイ');
   console.log('================================================\n');
 
-  // Step 1: ログイン確認
-  const loggedIn = fs.existsSync(CLASPRC) &&
-    (() => { try { return !!JSON.parse(fs.readFileSync(CLASPRC,'utf8')).token; } catch{ return false; } })();
+  // Step 1: ログイン確認（clasp whoami で確認）
+  let loggedIn = false;
+  try {
+    const who = capture('clasp whoami');
+    loggedIn = who.includes('@');
+  } catch(_) {}
 
   if (!loggedIn) {
     console.log('[1/3] Google アカウントへのログイン');
     info('ブラウザが開きます。Googleアカウントでログインしてください。');
-    info('ブラウザを開けない環境では以下のURLにアクセスしてコードを貼り付けてください。');
-    run('clasp login --no-localhost');
+    run('clasp login');
     ok('ログイン完了\n');
   } else {
     ok('ログイン済み\n');
