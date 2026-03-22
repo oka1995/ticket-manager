@@ -48,6 +48,19 @@ function handle(e) {
         return out;
       }
 
+      // ---- 画像 base64 取得（AI識別用） ----
+      if (action === 'getImgBase64') {
+        const file = DriveApp.getFileById(body.fileId);
+        try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e2) {}
+        const blob = file.getBlob();
+        out.setContent(JSON.stringify({
+          ok: true,
+          base64:   Utilities.base64Encode(blob.getBytes()),
+          mimeType: blob.getContentType() || 'image/jpeg'
+        }));
+        return out;
+      }
+
     } else {
       action = e.parameter.action;
     }
@@ -58,6 +71,23 @@ function handle(e) {
     if (action === 'getImgFolderUrl') {
       const folder = getOrCreateImgFolder();
       out.setContent(JSON.stringify({ ok: true, folderId: folder.getId(), folderUrl: folder.getUrl() }));
+
+    } else if (action === 'listImgFolder') {
+      const folder  = getOrCreateImgFolder();
+      const imgCol  = CARD_HEADERS.indexOf('画像DriveID');
+      const rows    = sh.getDataRange().getValues().slice(1);
+      const usedIds = new Set(rows.map(r => String(r[imgCol] || '')).filter(Boolean));
+      const iter    = folder.getFiles();
+      const list    = [];
+      while (iter.hasNext()) {
+        const f   = iter.next();
+        if (!f.getMimeType().startsWith('image/')) continue;
+        const fid = f.getId();
+        if (usedIds.has(fid)) continue;
+        try { f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e2) {}
+        list.push({ fileId: fid, name: f.getName() });
+      }
+      out.setContent(JSON.stringify({ ok: true, files: list }));
 
     } else if (action === 'read') {
       out.setContent(JSON.stringify({ ok: true, data: sh.getDataRange().getValues() }));

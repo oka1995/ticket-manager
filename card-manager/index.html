@@ -90,6 +90,19 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .btn-ai{background:linear-gradient(135deg,#7c3aed,#4f46e5);color:#fff;border:none}
 .btn-ai:hover{opacity:.85}
 .btn-ai:disabled{opacity:.5;cursor:not-allowed}
+/* bulk import */
+.bulk-list{display:flex;flex-direction:column;gap:6px;max-height:52vh;overflow-y:auto;padding-right:2px}
+.bulk-row{display:flex;gap:8px;align-items:flex-start;padding:8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg);transition:opacity .15s}
+.bulk-row.excluded{opacity:.4}
+.bulk-thumb{width:80px;height:50px;object-fit:cover;border-radius:4px;flex-shrink:0;background:var(--bg3)}
+.bulk-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px}
+.bulk-fname{font-size:11px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bulk-fields{display:grid;grid-template-columns:1fr 110px;gap:5px}
+.bulk-ai-row{display:flex;gap:6px;align-items:center}
+.bulk-status{font-size:10px;color:var(--text3)}
+.bulk-status.running{color:var(--blue)}
+.bulk-status.done{color:#16a34a}
+.bulk-status.error{color:var(--red)}
 </style>
 </head>
 <body>
@@ -255,6 +268,27 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 </div>
 </div>
 
+<!-- 一括取込モーダル -->
+<div id="bulk-modal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:620px;width:100%">
+  <h2>📥 Drive から一括取込</h2>
+  <p style="font-size:12px;color:var(--text2);margin-bottom:.75rem">「カード管理-画像」フォルダ内の未取込画像を表示します。AI で識別後、カード名称を確認して追加してください。</p>
+  <div id="bulk-loading" style="text-align:center;padding:2rem;color:var(--text2)">Drive を確認中…</div>
+  <div id="bulk-empty" style="display:none;text-align:center;padding:2rem;color:var(--text2)">未取込の画像がありません</div>
+  <div id="bulk-list-wrap" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+      <span id="bulk-file-count" style="font-size:12px;color:var(--text2)"></span>
+      <button class="btn btn-ai btn-sm" id="bulk-ai-all-btn" onclick="runAIAllBulk()">🤖 全て AI 識別</button>
+    </div>
+    <div class="bulk-list" id="bulk-list"></div>
+  </div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="closeBulkModal()">キャンセル</button>
+    <button class="btn btn-primary" id="bulk-save-btn" style="display:none" onclick="saveBulkCards()">追加</button>
+  </div>
+</div>
+</div>
+
 <!-- Anthropic API キー設定モーダル -->
 <div id="apikey-modal" style="display:none" class="modal-overlay">
 <div class="modal" style="max-width:420px">
@@ -413,7 +447,8 @@ function renderView(){
       : `<button class="btn btn-primary" onclick="openSetupModal()">🔑 パスワードを設定</button>`;
     btns.innerHTML = '';
   } else {
-    btns.innerHTML = `<span style="font-size:12px;color:var(--text2)">🔓 解除中</span>`;
+    btns.innerHTML = `<span style="font-size:12px;color:var(--text2)">🔓 解除中</span>
+      <button class="btn btn-secondary btn-sm" onclick="openBulkImportModal()">📥 一括取込</button>`;
     renderCards();
   }
 }
@@ -835,6 +870,178 @@ function applyOCRField(key, val){
   }
   toast(`${key==='brand'?'ブランド':key==='cardNumber'?'カード番号':key==='expiry'?'有効期限':'名義人'} を反映しました`);
   resetAutoLockTimer();
+}
+
+// ================================================================
+// Drive 一括取込
+// ================================================================
+let _bulkFiles = []; // {fileId, name, included, aiDone, cardName, brand}
+
+async function openBulkImportModal(){
+  if(!_cryptoKey){ toast('先にロックを解除してください'); return; }
+  _bulkFiles = [];
+  const modal = document.getElementById('bulk-modal');
+  modal.style.display = 'flex';
+  document.getElementById('bulk-loading').style.display = '';
+  document.getElementById('bulk-empty').style.display   = 'none';
+  document.getElementById('bulk-list-wrap').style.display = 'none';
+  document.getElementById('bulk-save-btn').style.display  = 'none';
+  try{
+    const res  = await fetch(`${GAS_URL}?action=listImgFolder`);
+    const json = await res.json();
+    if(!json.ok) throw new Error(json.error);
+    document.getElementById('bulk-loading').style.display = 'none';
+    if(!json.files.length){ document.getElementById('bulk-empty').style.display = ''; return; }
+    _bulkFiles = json.files.map(f=>({ fileId:f.fileId, name:f.name, included:true, aiDone:false, cardName:'', brand:'Visa' }));
+    renderBulkList();
+    document.getElementById('bulk-list-wrap').style.display = '';
+    updateBulkSaveBtn();
+  }catch(e){
+    document.getElementById('bulk-loading').textContent = 'エラー: ' + e.message;
+  }
+}
+
+function closeBulkModal(){
+  document.getElementById('bulk-modal').style.display = 'none';
+  _bulkFiles = [];
+}
+
+const BRAND_OPTIONS = ['Visa','Mastercard','JCB','American Express','Diners Club','その他'];
+
+function renderBulkList(){
+  document.getElementById('bulk-file-count').textContent = `${_bulkFiles.length} 件`;
+  document.getElementById('bulk-list').innerHTML = _bulkFiles.map((f,i)=>`
+    <div class="bulk-row${f.included?'':' excluded'}" id="bulk-row-${i}">
+      <input type="checkbox" ${f.included?'checked':''} onchange="toggleBulkItem(${i},this.checked)" style="margin-top:3px;flex-shrink:0">
+      <img class="bulk-thumb" src="https://drive.google.com/thumbnail?id=${f.fileId}&sz=w300" alt="">
+      <div class="bulk-info">
+        <div class="bulk-fname">${escHtml(f.name)}</div>
+        <div class="bulk-fields">
+          <input type="text" placeholder="カード名称（必須）" value="${escHtml(f.cardName)}"
+            oninput="_bulkFiles[${i}].cardName=this.value;updateBulkSaveBtn()" style="height:28px;font-size:12px">
+          <select onchange="_bulkFiles[${i}].brand=this.value" style="height:28px;font-size:12px">
+            ${BRAND_OPTIONS.map(b=>`<option${b===f.brand?' selected':''}>${b}</option>`).join('')}
+          </select>
+        </div>
+        <div class="bulk-ai-row">
+          <button class="btn btn-ai btn-sm" id="bulk-ai-btn-${i}" onclick="runAISingleBulk(${i})"
+            style="font-size:11px;height:24px;padding:0 8px">🤖 識別</button>
+          <span class="bulk-status" id="bulk-status-${i}">未識別</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function toggleBulkItem(i, checked){
+  _bulkFiles[i].included = checked;
+  document.getElementById(`bulk-row-${i}`).classList.toggle('excluded', !checked);
+  updateBulkSaveBtn();
+}
+
+function updateBulkSaveBtn(){
+  const n   = _bulkFiles.filter(f=>f.included && f.cardName.trim()).length;
+  const btn = document.getElementById('bulk-save-btn');
+  btn.style.display  = n ? '' : 'none';
+  btn.textContent    = `${n} 枚を追加`;
+}
+
+async function runAISingleBulk(i){
+  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
+  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
+  const f        = _bulkFiles[i];
+  const btn      = document.getElementById(`bulk-ai-btn-${i}`);
+  const statusEl = document.getElementById(`bulk-status-${i}`);
+  btn.disabled = true;
+  statusEl.textContent = '識別中…'; statusEl.className = 'bulk-status running';
+  try{
+    const imgRes  = await fetch(GAS_URL,{method:'POST',body:JSON.stringify({action:'getImgBase64',fileId:f.fileId})});
+    const imgData = await imgRes.json();
+    if(!imgData.ok) throw new Error(imgData.error);
+
+    const aiRes = await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':apiKey,
+               'anthropic-version':'2023-06-01','anthropic-dangerous-allow-browser':'true'},
+      body:JSON.stringify({
+        model:'claude-opus-4-6', max_tokens:512,
+        output_config:{format:{type:'json_schema',json_schema:{name:'card_identification',schema:{
+          type:'object',
+          properties:{cardName:{type:'string'},issuer:{type:'string'},brand:{type:'string'},grade:{type:'string'}},
+          required:['cardName','issuer','brand','grade'],additionalProperties:false
+        }}}},
+        messages:[{role:'user',content:[
+          {type:'image',source:{type:'base64',media_type:imgData.mimeType,data:imgData.base64}},
+          {type:'text',text:'このクレジットカードの券面画像を見て、カードの商品名・発行会社・ブランド・グレードを識別してください。日本のカードの場合は日本語で回答し、不明な項目は空文字列にしてください。'}
+        ]}]
+      })
+    });
+    if(!aiRes.ok){
+      const err = await aiRes.json().catch(()=>({}));
+      if(aiRes.status===401) localStorage.removeItem(LS_CLAUDE_KEY);
+      throw new Error(err.error?.message||`HTTP ${aiRes.status}`);
+    }
+    const data   = await aiRes.json();
+    const text   = data.content?.find(b=>b.type==='text')?.text;
+    if(!text) throw new Error('応答が空です');
+    const result = JSON.parse(text);
+
+    _bulkFiles[i].cardName = result.cardName || '';
+    const validBrands = ['Visa','Mastercard','JCB','American Express','Diners Club'];
+    if(result.brand && validBrands.includes(result.brand)) _bulkFiles[i].brand = result.brand;
+    _bulkFiles[i].aiDone = true;
+
+    const row = document.getElementById(`bulk-row-${i}`);
+    row.querySelector('input[type=text]').value = _bulkFiles[i].cardName;
+    row.querySelector('select').value           = _bulkFiles[i].brand;
+    statusEl.textContent = '識別完了'; statusEl.className = 'bulk-status done';
+    updateBulkSaveBtn();
+  }catch(e){
+    statusEl.textContent = 'エラー'; statusEl.className = 'bulk-status error';
+    statusEl.title = e.message;
+    console.warn('AI bulk error', e);
+  }finally{
+    btn.disabled = false;
+  }
+}
+
+async function runAIAllBulk(){
+  const apiKey = localStorage.getItem(LS_CLAUDE_KEY)||'';
+  if(!apiKey){ _aiPending = true; openApiKeyModal(); return; }
+  const btn = document.getElementById('bulk-ai-all-btn');
+  btn.disabled = true;
+  for(let i=0;i<_bulkFiles.length;i++){
+    if(_bulkFiles[i].aiDone) continue;
+    await runAISingleBulk(i);
+  }
+  btn.disabled = false;
+}
+
+async function saveBulkCards(){
+  if(!_cryptoKey){ toast('先にロックを解除してください'); return; }
+  const toSave = _bulkFiles.filter(f=>f.included && f.cardName.trim());
+  if(!toSave.length) return;
+  const btn = document.getElementById('bulk-save-btn');
+  btn.disabled = true; btn.textContent = '追加中…';
+  try{
+    for(const f of toSave){
+      const cardId = 'cc' + Date.now() + Math.random().toString(36).slice(2,6);
+      const {cipher,iv} = await aesEncrypt(_cryptoKey, JSON.stringify({cardNumber:'',expiry:'',holderName:'',cvv:''}));
+      await apiAppend(CARD_SHEET, cardToRow({
+        'カードID':cardId, 'カード名称':f.cardName.trim(), 'ブランド':f.brand,
+        '末尾4桁':'', '支払日':'', '暗号化データ':cipher, 'IV':iv, 'メモ':'', '画像DriveID':f.fileId
+      }));
+      await new Promise(r=>setTimeout(r,150));
+    }
+    closeBulkModal();
+    _rawCards = await loadRawCards();
+    _cards    = await decryptAllCards(_rawCards);
+    renderCards();
+    toast(`${toSave.length} 枚のカードを追加しました`);
+  }catch(e){
+    toast('追加エラー: ' + e.message);
+    btn.disabled = false;
+    updateBulkSaveBtn();
+  }
 }
 
 // ================================================================
