@@ -1,4 +1,4 @@
-# ライブチケット管理 & カード管理 Windows セットアップスクリプト
+# ライブチケット管理 Windows セットアップスクリプト
 # 使い方: powershell -ExecutionPolicy Bypass -File "kodama-setup.ps1"
 
 Set-StrictMode -Version Latest
@@ -12,10 +12,10 @@ function Write-Info  { param($msg) Write-Host "  -> $msg" -ForegroundColor Yello
 function Write-Fail  { param($msg) Write-Host "  x $msg" -ForegroundColor Red }
 
 Write-Host '================================================' -ForegroundColor Cyan
-Write-Host '  ライブチケット管理 & カード管理 セットアップ' -ForegroundColor Cyan
+Write-Host '  ライブチケット管理 セットアップ' -ForegroundColor Cyan
 Write-Host '================================================' -ForegroundColor Cyan
 
-$TOTAL = 3
+$TOTAL = 2
 
 # ---- Step 1: Node.js の確認 ----
 Write-Step 1 $TOTAL 'Node.js の確認'
@@ -52,35 +52,14 @@ try {
     Pop-Location
 }
 
-# ---- Step 3: カード管理セットアップ ----
-Write-Step 3 $TOTAL 'カード管理のセットアップ'
-$CardDir = Join-Path $ScriptDir 'card-manager'
-if (-not (Test-Path $CardDir)) {
-    Write-Fail "card-manager ディレクトリが見つかりません: $CardDir"
-    exit 1
-}
-Write-Info "card-manager/setup.js を実行します..."
-try {
-    Push-Location $CardDir
-    & node setup.js
-    if ($LASTEXITCODE -ne 0) { throw "card-manager/setup.js が失敗しました (exit code $LASTEXITCODE)" }
-    Write-Ok 'カード管理のセットアップ完了'
-} catch {
-    Write-Fail "カード管理のセットアップに失敗しました: $_"
-    exit 1
-} finally {
-    Pop-Location
-}
-
 # ---- 完了 ----
 Write-Host ''
 Write-Host '================================================' -ForegroundColor Green
-Write-Host '  全セットアップ完了！' -ForegroundColor Green
+Write-Host '  セットアップ完了！' -ForegroundColor Green
 Write-Host '================================================' -ForegroundColor Green
 Write-Host ''
 Write-Host '次のステップ:'
-Write-Host '  1. index.html をブラウザで開く（ライブチケット管理）'
-Write-Host '  2. card-manager/index.html をブラウザで開く（カード管理）'
-Write-Host '  3. 初回アクセス時に Google のスコープ許可が求められます'
+Write-Host '  1. index.html をブラウザで開く'
+Write-Host '  2. 初回アクセス時に Google のスコープ許可が求められます'
 Write-Host '     「許可」をクリックしてください'
 Write-Host ''
