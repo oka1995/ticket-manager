@@ -47,8 +47,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Helvetica Neue",Arial,sans-se
 /* toolbar */
 .toolbar{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap;align-items:center}
 .toolbar input{flex:1;min-width:120px}
-.toolbar select{font-size:13px}
 .view-toggle{display:flex;gap:4px;margin-left:auto}
+/* chip filters */
+.chip-group{display:flex;gap:4px;flex-wrap:wrap;align-items:center}
+.chip-group-label{font-size:10px;color:var(--text3);font-weight:600;letter-spacing:.03em;margin-right:2px}
+.chip{display:inline-flex;align-items:center;padding:3px 10px;border-radius:100px;font-size:11px;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:var(--bg);color:var(--text2);transition:all .15s;white-space:nowrap;user-select:none}
+.chip:hover{background:var(--bg2);border-color:var(--text3)}
+.chip.active{background:var(--text);color:#fff;border-color:var(--text)}
 /* form elements */
 input,select,textarea{font-family:inherit;font-size:13px;border:1px solid var(--border2);border-radius:var(--radius-sm);padding:0 10px;height:34px;background:var(--bg);color:var(--text);width:100%}
 input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px rgba(24,95,165,.12)}
@@ -190,20 +195,32 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
     <div class="stats" id="stats"></div>
     <div class="toolbar">
       <input type="text" id="search" placeholder="名義・譲渡先で検索..." oninput="renderTickets()" />
-      <select id="flt-ticket" onchange="renderTickets()">
-        <option value="">チケット全て</option>
-        <option>申込前</option><option>申込済</option><option>落選</option>
-        <option>当選</option><option>支払前</option><option>支払済</option>
-      </select>
-      <select id="flt-fund" onchange="renderTickets()">
-        <option value="">資金全て</option><option>回収前</option><option>回収済</option>
-      </select>
-      <select id="flt-transfer" onchange="renderTickets()">
-        <option value="">譲渡全て</option><option>譲渡先未定</option><option>譲渡前</option><option>譲渡済</option>
-      </select>
+      <button class="btn btn-secondary btn-sm" id="btn-save-all" style="display:none" onclick="saveAllExpanded()">一括保存</button>
       <div class="view-toggle">
         <button class="btn btn-secondary active" id="view-tree-btn" onclick="setView('tree')">ツリー</button>
         <button class="btn btn-secondary" id="view-list-btn" onclick="setView('list')">一覧</button>
+      </div>
+    </div>
+    <div style="display:flex;gap:12px;margin-bottom:1rem;flex-wrap:wrap;align-items:center">
+      <div class="chip-group"><span class="chip-group-label">チケット</span>
+        <span class="chip active" data-filter="flt-ticket" data-val="" onclick="toggleChip(this)">全て</span>
+        <span class="chip" data-filter="flt-ticket" data-val="申込前" onclick="toggleChip(this)">申込前</span>
+        <span class="chip" data-filter="flt-ticket" data-val="申込済" onclick="toggleChip(this)">申込済</span>
+        <span class="chip" data-filter="flt-ticket" data-val="落選" onclick="toggleChip(this)">落選</span>
+        <span class="chip" data-filter="flt-ticket" data-val="当選" onclick="toggleChip(this)">当選</span>
+        <span class="chip" data-filter="flt-ticket" data-val="支払前" onclick="toggleChip(this)">支払前</span>
+        <span class="chip" data-filter="flt-ticket" data-val="支払済" onclick="toggleChip(this)">支払済</span>
+      </div>
+      <div class="chip-group"><span class="chip-group-label">資金</span>
+        <span class="chip active" data-filter="flt-fund" data-val="" onclick="toggleChip(this)">全て</span>
+        <span class="chip" data-filter="flt-fund" data-val="回収前" onclick="toggleChip(this)">回収前</span>
+        <span class="chip" data-filter="flt-fund" data-val="回収済" onclick="toggleChip(this)">回収済</span>
+      </div>
+      <div class="chip-group"><span class="chip-group-label">譲渡</span>
+        <span class="chip active" data-filter="flt-transfer" data-val="" onclick="toggleChip(this)">全て</span>
+        <span class="chip" data-filter="flt-transfer" data-val="譲渡先未定" onclick="toggleChip(this)">譲渡先未定</span>
+        <span class="chip" data-filter="flt-transfer" data-val="譲渡前" onclick="toggleChip(this)">譲渡前</span>
+        <span class="chip" data-filter="flt-transfer" data-val="譲渡済" onclick="toggleChip(this)">譲渡済</span>
       </div>
     </div>
     <div id="list"></div>
@@ -308,7 +325,8 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 
 <script>
 const GAS_URL = "https://script.google.com/macros/s/AKfycbxur5BxgdDW7IB3k333xFLt71mni6qHO_bKI-V1p4Vo6nzAclgstjxeIUO6WK-k6jw/exec";
-const PREFS = ['北海道','青森県','岩手県','宮城県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','埼玉県','千葉県','東京都','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','愛知県','三重県','滋賀県','京都府','大阪府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','福岡県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県'];
+const PREF_PRIORITY = ['東京都','大阪府','愛知県','福岡県','宮城県','北海道','千葉県','埼玉県'];
+const PREFS = [...PREF_PRIORITY, ...['青森県','岩手県','秋田県','山形県','福島県','茨城県','栃木県','群馬県','神奈川県','新潟県','富山県','石川県','福井県','山梨県','長野県','岐阜県','静岡県','三重県','滋賀県','京都府','兵庫県','奈良県','和歌山県','鳥取県','島根県','岡山県','広島県','山口県','徳島県','香川県','愛媛県','高知県','佐賀県','長崎県','熊本県','大分県','宮崎県','鹿児島県','沖縄県']];
 
 let perfs=[], groups=[], tickets=[];
 let editId=null, editGId=null, viewMode='tree', currentTab='tickets';
@@ -361,24 +379,27 @@ async function apiDelete(sheet, rowIndex){
 }
 
 // ---- Load ----
-async function loadAll(){
-  showLoading();
+async function loadAll(silent){
+  if(!silent) showLoading();
   try {
     [perfs, groups, tickets] = await Promise.all([
-      apiRead('公演'), apiRead('連番グループ'), apiRead('チケット')
+      window.apiRead('公演'), window.apiRead('連番グループ'), window.apiRead('チケット')
     ]);
   } catch(e){
-    document.getElementById('list').innerHTML = `<div class="empty">データの読み込みに失敗しました。<br>${e.message}</div>`;
+    if(!silent) document.getElementById('list').innerHTML = `<div class="empty">データの読み込みに失敗しました。<br>${e.message}</div>`;
+    return;
   }
   buildFilterSelects();
   renderTickets();
-  hideLoading();
 }
 
 function showLoading(){
   document.getElementById('list').innerHTML = '<div class="loading"><div class="spinner"></div>読み込み中...</div>';
 }
-function hideLoading(){}
+
+function bgSync(fn){
+  fn().then(()=>loadAll(true)).catch(e=>console.error('bgSync error:',e));
+}
 
 function toast(msg){
   const el = document.getElementById('toast');
@@ -450,6 +471,16 @@ function setView(v){
   document.getElementById('view-tree-btn').classList.toggle('active',v==='tree');
   document.getElementById('view-list-btn').classList.toggle('active',v==='list');
   renderTickets();
+}
+
+function toggleChip(el){
+  el.parentElement.querySelectorAll('.chip').forEach(c=>c.classList.remove('active'));
+  el.classList.add('active');
+  renderTickets();
+}
+function getChip(name){
+  const el=document.querySelector(`.chip.active[data-filter="${name}"]`);
+  return el?el.dataset.val:'';
 }
 
 // ---- Helpers ----
@@ -560,9 +591,9 @@ function ticketCard(t, num, nested){
 function renderTickets(){
   buildFilterSelects();
   const search=document.getElementById('search').value.toLowerCase();
-  const ft=document.getElementById('flt-ticket').value;
-  const ff=document.getElementById('flt-fund').value;
-  const ftr=document.getElementById('flt-transfer').value;
+  const ft=getChip('flt-ticket');
+  const ff=getChip('flt-fund');
+  const ftr=getChip('flt-transfer');
   const fa=document.getElementById('f-artist').value;
   const ftour=document.getElementById('f-tour').value;
   const fv=document.getElementById('f-venue').value;
@@ -734,7 +765,23 @@ function renderDash(){
 }
 
 // ---- Toggles ----
-function toggleExp(key){expanded[key]=!expanded[key];renderTickets();}
+function toggleExp(key){expanded[key]=!expanded[key];renderTickets();updateSaveAllBtn();}
+function updateSaveAllBtn(){
+  const cnt=Object.values(expanded).filter(Boolean).length;
+  const btn=document.getElementById('btn-save-all');
+  btn.style.display=cnt>=2?'':'none';
+}
+function saveAllExpanded(){
+  const rows=[];
+  for(const[k,v]of Object.entries(expanded)){
+    if(!v)continue;
+    const row=parseInt(k.replace('n',''));
+    if(!isNaN(row)&&document.getElementById('ei-account-'+row)) rows.push(row);
+  }
+  if(!rows.length)return;
+  rows.forEach(r=>saveInline(r));
+  toast(`${rows.length}件を一括保存しました`);
+}
 function toggleGrp(id){gExpanded[id]=gExpanded[id]===false?true:false;renderTickets();}
 function toggleEv(id){eExpanded[id]=eExpanded[id]===false?true:false;renderTickets();}
 
@@ -784,20 +831,24 @@ async function saveModal(){
   const row=ticketToRow(obj);
   if(editId){
     const t=tickets.find(t=>t['チケットID']===editId);
-    await apiUpdate('チケット', t._row, row);
+    Object.assign(t, obj);
+    closeModal(); renderTickets();
+    toast('チケットを更新しました');
+    bgSync(()=>apiUpdate('チケット', t._row, row));
   } else {
-    await apiAppend('チケット', row);
+    obj._row=999;
+    tickets.push(obj);
+    closeModal(); renderTickets();
+    toast('チケットを追加しました');
+    bgSync(()=>apiAppend('チケット', row));
   }
-  closeModal();
-  await loadAll();
-  toast(editId?'チケットを更新しました':'チケットを追加しました');
 }
 
-async function saveInline(rowIdx){
+function saveInline(rowIdx){
   const t=tickets.find(x=>x._row===rowIdx);
   const ts=document.getElementById('ei-ts-'+rowIdx).value;
   const grpEl=document.getElementById('ei-grp-'+rowIdx);
-  const obj={...t,
+  const updates={
     'アカウント名義':document.getElementById('ei-account-'+rowIdx).value.trim(),
     '支払い者名義':document.getElementById('ei-payer-'+rowIdx).value.trim(),
     '譲渡先の名前':document.getElementById('ei-to-'+rowIdx).value.trim(),
@@ -811,28 +862,51 @@ async function saveInline(rowIdx){
     '連番グループID':grpEl?grpEl.value:t['連番グループID'],
     'メモ':document.getElementById('ei-memo-'+rowIdx).value.trim(),
   };
-  await apiUpdate('チケット', rowIdx, ticketToRow(obj));
-  await loadAll();
+  // グループ内同期確認
+  const syncFields=['チケットステータス','資金回収ステータス','譲渡ステータス'];
+  const changed=syncFields.filter(f=>updates[f]!==t[f]);
+  const gid=updates['連番グループID']||t['連番グループID'];
+  const siblings=gid?tickets.filter(x=>x['連番グループID']===gid&&x._row!==rowIdx):[];
+
+  Object.assign(t, updates);
+  renderTickets();
   toast('保存しました');
+  bgSync(()=>apiUpdate('チケット', rowIdx, ticketToRow({...t,...updates})));
+
+  if(changed.length&&siblings.length){
+    const label=changed.map(f=>`${f}: ${updates[f]}`).join(', ');
+    if(confirm(`グループ内の他${siblings.length}枚にも同じ変更を反映しますか？\n\n${label}`)){
+      siblings.forEach(s=>{
+        changed.forEach(f=>s[f]=updates[f]);
+        bgSync(()=>apiUpdate('チケット', s._row, ticketToRow(s)));
+      });
+      renderTickets();
+      toast(`グループ内${siblings.length}枚も更新しました`);
+    }
+  }
 }
 
-async function deleteTicket(rowIdx){
+function deleteTicket(rowIdx){
   if(!confirm('このチケットを削除しますか？'))return;
-  await apiDelete('チケット', rowIdx);
-  await loadAll();
+  tickets=tickets.filter(x=>x._row!==rowIdx);
+  delete expanded[rowIdx]; delete expanded['n'+rowIdx];
+  renderTickets();
   toast('削除しました');
+  bgSync(()=>apiDelete('チケット', rowIdx));
 }
 
-async function duplicateTicket(rowIdx){
+function duplicateTicket(rowIdx){
   const t=tickets.find(x=>x._row===rowIdx);
   if(!t)return;
   const obj={};
   TICKET_HEADERS.forEach(h=>obj[h]=t[h]??'');
   obj['チケットID']='t'+Date.now();
   obj['席番号/整理番号']='';
-  await apiAppend('チケット', ticketToRow(obj));
-  await loadAll();
+  obj._row=999;
+  tickets.push(obj);
+  renderTickets();
   toast('チケットを複製しました');
+  bgSync(()=>apiAppend('チケット', ticketToRow(obj)));
 }
 
 // ---- Group modal ----
