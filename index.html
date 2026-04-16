@@ -103,6 +103,8 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .grp-ticket.transferred{opacity:.4;filter:grayscale(.55);background:var(--bg2)}
 .grp-ticket:not(.transferred){background:var(--bg)}
 .grp-ticket:not(.transferred):hover{background:var(--bg2)}
+.grp-actions{display:flex;gap:3px;margin-left:auto;flex-shrink:0}
+.grp-actions .btn{padding:0 6px;height:22px;font-size:10px;line-height:22px}
 /* dashboard */
 .dash-filter{display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap;align-items:flex-end}
 .dash-filter>div label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
@@ -600,7 +602,6 @@ function renderTickets(){
       groups.filter(g=>g['紐付け公演ID']===pid).forEach(grp=>{
         const gid=grp['グループID'];
         const gt=pt.filter(t=>t['連番グループID']===gid);
-        if(!gt.length)return;
         gt.forEach(t=>usedRows.add(t._row));
         const isGOpen=gExpanded[gid]!==false;
         const gs=[...new Set(gt.map(t=>t['チケットステータス']))];
@@ -609,14 +610,19 @@ function renderTickets(){
         html+=`<div class="tree-group">
           <div class="tree-group-hdr" onclick="toggleGrp('${gid}')">
             <span style="color:var(--purple)">🔗</span>
-            <span style="font-size:13px;font-weight:600">${grp['グループ名']}</span>
+            <span id="gn-${gid}" style="font-size:13px;font-weight:600">${grp['グループ名']}</span>
             <span style="font-size:12px;color:var(--text3)">${gt.length}枚</span>
             ${gs.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
             ${gf.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
             ${gtr.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
-            <span class="chevron ${isGOpen?'open':''}" style="margin-left:auto">▼</span>
+            <span class="grp-actions">
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();editGroupName('${gid}')">編集</button>
+              <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();duplicateGroup('${gid}')">複製</button>
+              <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteGroup('${gid}')">削除</button>
+            </span>
+            <span class="chevron ${isGOpen?'open':''}">▼</span>
           </div>
-          ${isGOpen?`<div class="tree-group-body">${gt.map(t=>ticketCard(t,numMap[t._row],true)).join('')}</div>`:''}
+          ${isGOpen?`<div class="tree-group-body">${gt.length?gt.map(t=>ticketCard(t,numMap[t._row],true)).join(''):'<div class="empty" style="padding:1rem">チケットなし</div>'}</div>`:''}
         </div>`;
       });
       pt.filter(t=>!usedRows.has(t._row)).forEach(t=>{html+=ticketCard(t,numMap[t._row],false);});
@@ -832,6 +838,62 @@ async function saveGroup(){
   await loadAll();
   toast(editGId?'グループを更新しました':'グループを作成しました');
   saving=false;
+}
+
+function editGroupName(gid){
+  const el=document.getElementById('gn-'+gid);
+  if(!el)return;
+  const grp=groups.find(g=>g['グループID']===gid);
+  if(!grp)return;
+  const cur=grp['グループ名'];
+  el.outerHTML=`<input id="gn-input-${gid}" type="text" value="${cur}"
+    style="font-size:13px;font-weight:600;width:160px;height:26px;padding:0 6px"
+    onclick="event.stopPropagation()"
+    onblur="saveGroupName('${gid}')"
+    onkeydown="if(event.key==='Enter'){event.preventDefault();saveGroupName('${gid}')}if(event.key==='Escape'){renderTickets()}" />`;
+  const inp=document.getElementById('gn-input-'+gid);
+  inp.focus(); inp.select();
+}
+
+async function saveGroupName(gid){
+  const inp=document.getElementById('gn-input-'+gid);
+  if(!inp)return;
+  const name=inp.value.trim();
+  inp.id='';
+  if(!name){renderTickets();return;}
+  const grp=groups.find(g=>g['グループID']===gid);
+  if(!grp||name===grp['グループ名']){renderTickets();return;}
+  const obj={};
+  GROUP_HEADERS.forEach(h=>obj[h]=grp[h]??'');
+  obj['グループ名']=name;
+  await apiUpdate('連番グループ', grp._row, groupToRow(obj));
+  await loadAll();
+  toast('グループ名を更新しました');
+}
+
+async function duplicateGroup(gid){
+  const grp=groups.find(g=>g['グループID']===gid);
+  if(!grp)return;
+  const obj={};
+  GROUP_HEADERS.forEach(h=>obj[h]=grp[h]??'');
+  obj['グループID']='g'+Date.now();
+  obj['グループ名']=grp['グループ名']+' (コピー)';
+  await apiAppend('連番グループ', groupToRow(obj));
+  await loadAll();
+  toast('グループを複製しました');
+}
+
+async function deleteGroup(gid){
+  const grp=groups.find(g=>g['グループID']===gid);
+  if(!grp)return;
+  const gt=tickets.filter(t=>t['連番グループID']===gid);
+  const msg=gt.length
+    ?`このグループには${gt.length}枚のチケットが紐付いています。削除しますか？\n（チケットは削除されず、グループなしになります）`
+    :'このグループを削除しますか？';
+  if(!confirm(msg))return;
+  await apiDelete('連番グループ', grp._row);
+  await loadAll();
+  toast('グループを削除しました');
 }
 
 // ---- Perf modal ----
