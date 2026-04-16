@@ -85,6 +85,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .b-回収前{background:#FBEAF0;color:#993556}
 .b-回収済{background:#E1F5EE;color:#0F6E56}
 .b-譲渡前{background:#F1EFE8;color:#5F5E5A}
+.b-譲渡先未定{background:#FDF4E7;color:#8B6914}
 .b-譲渡済{background:#D3D1C7;color:#444441}
 .b-group{background:#EEEDFE;color:#534AB7}
 .seat-badge{font-size:10px;color:var(--text2);background:var(--bg2);padding:2px 6px;border-radius:4px;border:1px solid var(--border);flex-shrink:0}
@@ -103,6 +104,11 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .grp-ticket.transferred{opacity:.4;filter:grayscale(.55);background:var(--bg2)}
 .grp-ticket:not(.transferred){background:var(--bg)}
 .grp-ticket:not(.transferred):hover{background:var(--bg2)}
+.toggle-group{display:inline-flex;border:1px solid var(--border2);border-radius:var(--radius-sm);overflow:hidden;width:100%}
+.toggle-btn{flex:1;border:none;background:var(--bg);color:var(--text2);padding:0 10px;height:34px;font-size:12px;font-weight:500;cursor:pointer;transition:all .15s}
+.toggle-btn+.toggle-btn{border-left:1px solid var(--border2)}
+.toggle-btn.active{background:var(--text);color:#fff}
+.toggle-btn:hover:not(.active){background:var(--bg2)}
 .grp-actions{display:flex;gap:3px;margin-left:auto;flex-shrink:0}
 .grp-actions .btn{padding:0 6px;height:22px;font-size:10px;line-height:22px}
 /* dashboard */
@@ -193,7 +199,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
         <option value="">資金全て</option><option>回収前</option><option>回収済</option>
       </select>
       <select id="flt-transfer" onchange="renderTickets()">
-        <option value="">譲渡全て</option><option>譲渡前</option><option>譲渡済</option>
+        <option value="">譲渡全て</option><option>譲渡先未定</option><option>譲渡前</option><option>譲渡済</option>
       </select>
       <div class="view-toggle">
         <button class="btn btn-secondary active" id="view-tree-btn" onclick="setView('tree')">ツリー</button>
@@ -231,7 +237,10 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       </select>
     </div>
     <div class="mi"><label>資金回収ステータス</label>
-      <select id="m-fs"><option>回収前</option><option>回収済</option></select>
+      <div class="toggle-group" id="m-fs">
+        <button type="button" class="toggle-btn active" data-val="回収前" onclick="setToggle(this)">回収前</button>
+        <button type="button" class="toggle-btn" data-val="回収済" onclick="setToggle(this)">回収済</button>
+      </div>
     </div>
     <div class="mi"><label>席番号 / 整理番号</label><input id="m-seat" type="text" placeholder="A-15 / No.042" /></div>
     <div class="mi"><label>連番グループ（任意）</label><select id="m-group"></select></div>
@@ -244,7 +253,11 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
     </div>
     <div class="full msec">譲渡情報</div>
     <div class="mi"><label>譲渡ステータス</label>
-      <select id="m-tr"><option>譲渡前</option><option>譲渡済</option></select>
+      <div class="toggle-group" id="m-tr">
+        <button type="button" class="toggle-btn active" data-val="譲渡先未定" onclick="setToggle(this)">譲渡先未定</button>
+        <button type="button" class="toggle-btn" data-val="譲渡前" onclick="setToggle(this)">譲渡前</button>
+        <button type="button" class="toggle-btn" data-val="譲渡済" onclick="setToggle(this)">譲渡済</button>
+      </div>
     </div>
     <div class="mi"><label>譲渡先の名前</label><input id="m-to" type="text" placeholder="@user_name" /></div>
     <div class="mi full"><label>SNS URL</label><input id="m-sns" type="text" placeholder="https://..." /></div>
@@ -301,7 +314,23 @@ let perfs=[], groups=[], tickets=[];
 let editId=null, editGId=null, viewMode='tree', currentTab='tickets';
 let expanded={}, gExpanded={}, eExpanded={};
 let perfEdits=[];
-let saving=false;
+
+// ---- Toggle helpers ----
+function setToggle(btn){
+  btn.parentElement.querySelectorAll('.toggle-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+}
+function getToggle(id){
+  const el=document.getElementById(id);
+  if(!el)return '';
+  const a=el.querySelector('.toggle-btn.active');
+  return a?a.dataset.val:'';
+}
+function setToggleVal(id,val){
+  const el=document.getElementById(id);
+  if(!el)return;
+  el.querySelectorAll('.toggle-btn').forEach(b=>b.classList.toggle('active',b.dataset.val===val));
+}
 
 // ---- API ----
 async function apiRead(sheet){
@@ -460,9 +489,13 @@ function expandForm(t, nested){
         ${['申込前','申込済','落選','当選','支払前','支払済'].map(s=>`<option ${t['チケットステータス']===s?'selected':''}>${s}</option>`).join('')}
       </select></div>
     <div class="detail-item"><label>資金回収</label>
-      <select id="ei-fs-${t._row}">${['回収前','回収済'].map(s=>`<option ${t['資金回収ステータス']===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="toggle-group" id="ei-fs-${t._row}">
+        ${['回収前','回収済'].map(s=>`<button type="button" class="toggle-btn${t['資金回収ステータス']===s?' active':''}" data-val="${s}" onclick="event.stopPropagation();setToggle(this)">${s}</button>`).join('')}
+      </div></div>
     <div class="detail-item"><label>譲渡ステータス</label>
-      <select id="ei-tr-${t._row}">${['譲渡前','譲渡済'].map(s=>`<option ${t['譲渡ステータス']===s?'selected':''}>${s}</option>`).join('')}</select></div>
+      <div class="toggle-group" id="ei-tr-${t._row}">
+        ${['譲渡先未定','譲渡前','譲渡済'].map(s=>`<button type="button" class="toggle-btn${t['譲渡ステータス']===s?' active':''}" data-val="${s}" onclick="event.stopPropagation();setToggle(this)">${s}</button>`).join('')}
+      </div></div>
     <div class="detail-item full" id="ei-pay-${t._row}" style="${ep?'':'display:none'}">
       <label>支払い番号</label><input type="text" id="ei-paynum-${t._row}" value="${t['支払い番号']}" placeholder="PAY-XXXXX" style="margin-bottom:6px" />
       <label>支払いURL</label><input type="text" id="ei-payurl-${t._row}" value="${t['支払いURL']}" placeholder="https://..." />
@@ -668,7 +701,7 @@ function renderDash(){
       const total=pt.length;
       const won=pt.filter(t=>['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
       const done=pt.filter(t=>t['譲渡ステータス']==='譲渡済').length;
-      const pending=pt.filter(t=>t['譲渡ステータス']==='譲渡前'&&['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
+      const pending=pt.filter(t=>t['譲渡ステータス']!=='譲渡済'&&['当選','支払前','支払済'].includes(t['チケットステータス'])).length;
       tT+=total;tW+=won;tD+=done;tP+=pending;
       const pct=won>0?Math.round(done/won*100):0;
       const fc=pct>=100?'':pct>=60?'warn':'danger';
@@ -716,8 +749,8 @@ function openAdd(){
   document.getElementById('modal-title').textContent='新規チケット追加';
   ['m-account','m-payer','m-to','m-sns','m-seat','m-memo','m-paynum','m-payurl'].forEach(i=>document.getElementById(i).value='');
   document.getElementById('m-ts').value='申込前';
-  document.getElementById('m-fs').value='回収前';
-  document.getElementById('m-tr').value='譲渡前';
+  setToggleVal('m-fs','回収前');
+  setToggleVal('m-tr','譲渡先未定');
   document.getElementById('m-pay-wrap').style.display='none';
   perfSelectOpts('m-perf','');
   groupSelectOpts('m-group','','');
@@ -727,7 +760,6 @@ function openAdd(){
 function closeModal(){document.getElementById('modal').style.display='none';}
 
 async function saveModal(){
-  if(saving)return; saving=true;
   const ts=document.getElementById('m-ts').value;
   const pid=document.getElementById('m-perf').value;
   const obj={
@@ -739,8 +771,8 @@ async function saveModal(){
     'アカウント名義':document.getElementById('m-account').value.trim(),
     '支払い者名義':document.getElementById('m-payer').value.trim(),
     'チケットステータス':ts,
-    '資金回収ステータス':document.getElementById('m-fs').value,
-    '譲渡ステータス':document.getElementById('m-tr').value,
+    '資金回収ステータス':getToggle('m-fs'),
+    '譲渡ステータス':getToggle('m-tr'),
     '席番号/整理番号':document.getElementById('m-seat').value.trim(),
     '支払い番号':ts==='支払前'?document.getElementById('m-paynum').value.trim():'',
     '支払いURL':ts==='支払前'?document.getElementById('m-payurl').value.trim():'',
@@ -748,7 +780,7 @@ async function saveModal(){
     'SNSプロフィールURL':document.getElementById('m-sns').value.trim(),
     'メモ':document.getElementById('m-memo').value.trim(),
   };
-  if(!obj['アカウント名義']){alert('アカウント名義を入力してください');saving=false;return;}
+  if(!obj['アカウント名義']){alert('アカウント名義を入力してください');return;}
   const row=ticketToRow(obj);
   if(editId){
     const t=tickets.find(t=>t['チケットID']===editId);
@@ -759,11 +791,9 @@ async function saveModal(){
   closeModal();
   await loadAll();
   toast(editId?'チケットを更新しました':'チケットを追加しました');
-  saving=false;
 }
 
 async function saveInline(rowIdx){
-  if(saving)return; saving=true;
   const t=tickets.find(x=>x._row===rowIdx);
   const ts=document.getElementById('ei-ts-'+rowIdx).value;
   const grpEl=document.getElementById('ei-grp-'+rowIdx);
@@ -774,8 +804,8 @@ async function saveInline(rowIdx){
     'SNSプロフィールURL':document.getElementById('ei-sns-'+rowIdx).value.trim(),
     '席番号/整理番号':document.getElementById('ei-seat-'+rowIdx).value.trim(),
     'チケットステータス':ts,
-    '資金回収ステータス':document.getElementById('ei-fs-'+rowIdx).value,
-    '譲渡ステータス':document.getElementById('ei-tr-'+rowIdx).value,
+    '資金回収ステータス':getToggle('ei-fs-'+rowIdx),
+    '譲渡ステータス':getToggle('ei-tr-'+rowIdx),
     '支払い番号':ts==='支払前'?(document.getElementById('ei-paynum-'+rowIdx)||{value:''}).value.trim():'',
     '支払いURL':ts==='支払前'?(document.getElementById('ei-payurl-'+rowIdx)||{value:''}).value.trim():'',
     '連番グループID':grpEl?grpEl.value:t['連番グループID'],
@@ -784,7 +814,6 @@ async function saveInline(rowIdx){
   await apiUpdate('チケット', rowIdx, ticketToRow(obj));
   await loadAll();
   toast('保存しました');
-  saving=false;
 }
 
 async function deleteTicket(rowIdx){
@@ -817,9 +846,8 @@ function openAddGroup(){
 }
 function closeGModal(){document.getElementById('gmodal').style.display='none';}
 async function saveGroup(){
-  if(saving)return; saving=true;
   const name=document.getElementById('gm-name').value.trim();
-  if(!name){alert('グループ名を入力してください');saving=false;return;}
+  if(!name){alert('グループ名を入力してください');return;}
   const obj={
     'グループID':editGId||'g'+Date.now(),
     'グループ名':name,
@@ -837,7 +865,6 @@ async function saveGroup(){
   closeGModal();
   await loadAll();
   toast(editGId?'グループを更新しました':'グループを作成しました');
-  saving=false;
 }
 
 function editGroupName(gid){
@@ -922,7 +949,6 @@ function addPerfRow(){
 }
 function removePerfRow(i){perfEdits.splice(i,1);renderPerfList();}
 async function savePerfs(){
-  if(saving)return; saving=true;
   perfEdits.forEach((p,i)=>{
     p['アーティスト名']=document.getElementById('pe-artist-'+i).value.trim();
     p['ツアー名']=document.getElementById('pe-tour-'+i).value.trim();
@@ -941,7 +967,6 @@ async function savePerfs(){
   closePModal();
   await loadAll();
   toast('公演を保存しました');
-  saving=false;
 }
 
 // attach _row index to each record after load
