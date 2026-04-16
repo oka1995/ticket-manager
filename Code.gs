@@ -68,6 +68,19 @@ function handle(e) {
       sheetName = e.parameter.sheet;
     }
 
+    // レシート照合アクション
+    if (action === 'readReceipts') {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const sh = ss.getSheetByName('レシート');
+      if (!sh) {
+        out.setContent(JSON.stringify({ ok: false, error: 'レシートシートが見つかりません' }));
+        return out;
+      }
+      const data = sh.getDataRange().getValues();
+      out.setContent(JSON.stringify({ ok: true, data }));
+      return out;
+    }
+
     // 許可されたシート名のみ受け付ける（それ以外は拒否）
     const allowed = Object.values(SHEET);
     if (!allowed.includes(sheetName)) {
