@@ -116,6 +116,19 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 .toggle-btn:hover:not(.active){background:var(--bg2)}
 .grp-actions{display:flex;gap:3px;margin-left:auto;flex-shrink:0}
 .grp-actions .btn{padding:0 6px;height:22px;font-size:10px;line-height:22px}
+/* drag & drop */
+.drag-over{outline:2px dashed var(--purple);outline-offset:-2px;background:rgba(83,74,183,.06)!important}
+[draggable="true"]{cursor:grab}
+[draggable="true"]:active{cursor:grabbing;opacity:.7}
+.drop-zone{border:2px dashed var(--border2);border-radius:var(--radius-sm);padding:10px;text-align:center;color:var(--text3);font-size:11px;margin-top:6px;transition:all .15s}
+.drop-zone.drag-over{border-color:var(--purple);color:var(--purple);background:rgba(83,74,183,.06)}
+/* multi-select */
+.select-bar{position:fixed;bottom:0;left:0;right:0;background:var(--text);color:#fff;padding:10px 20px;display:flex;align-items:center;gap:12px;justify-content:center;z-index:100;box-shadow:0 -4px 20px rgba(0,0,0,.15)}
+.select-bar span{font-size:13px}
+.select-bar .btn{border-color:rgba(255,255,255,.3);color:#fff}
+.select-bar .btn-primary{background:#fff;color:var(--text)}
+.cb-wrap{display:flex;align-items:center;gap:8px}
+.cb-wrap input[type="checkbox"]{width:16px;height:16px;flex-shrink:0;cursor:pointer}
 /* dashboard */
 .dash-filter{display:flex;gap:10px;margin-bottom:1rem;flex-wrap:wrap;align-items:flex-end}
 .dash-filter>div label{font-size:11px;color:var(--text2);display:block;margin-bottom:3px}
@@ -170,6 +183,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
       <p>チケット・連番グループ・譲渡・資金回収を一元管理</p>
     </div>
     <div class="header-btns">
+      <button class="btn btn-secondary" onclick="openReceipts()">レシート照合</button>
       <button class="btn btn-secondary" onclick="openPerfMgr()">公演管理</button>
       <button class="btn btn-secondary" onclick="openAddGroup()">+ グループ</button>
       <button class="btn btn-primary" onclick="openAdd()">+ チケット</button>
@@ -196,6 +210,7 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
     <div class="toolbar">
       <input type="text" id="search" placeholder="名義・譲渡先で検索..." oninput="renderTickets()" />
       <button class="btn btn-secondary btn-sm" id="btn-save-all" style="display:none" onclick="saveAllExpanded()">一括保存</button>
+      <button class="btn btn-secondary btn-sm" id="btn-select-mode" onclick="toggleSelectMode()">選択</button>
       <div class="view-toggle">
         <button class="btn btn-secondary active" id="view-tree-btn" onclick="setView('tree')">ツリー</button>
         <button class="btn btn-secondary" id="view-list-btn" onclick="setView('list')">一覧</button>
@@ -321,6 +336,24 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 </div>
 </div>
 
+<!-- Select bar -->
+<div class="select-bar" id="select-bar" style="display:none">
+  <span id="select-count">0件選択中</span>
+  <button class="btn btn-primary btn-sm" onclick="groupSelected()">グループ化</button>
+  <button class="btn btn-secondary btn-sm" onclick="toggleSelectMode()">キャンセル</button>
+</div>
+
+<!-- Receipt Modal -->
+<div id="rmodal" style="display:none" class="modal-overlay">
+<div class="modal" style="max-width:700px">
+  <h2>レシート照合</h2>
+  <div id="receipt-body"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
+  <div class="mactions">
+    <button class="btn btn-secondary" onclick="document.getElementById('rmodal').style.display='none'">閉じる</button>
+  </div>
+</div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -332,6 +365,7 @@ let perfs=[], groups=[], tickets=[];
 let editId=null, editGId=null, viewMode='tree', currentTab='tickets';
 let expanded={}, gExpanded={}, eExpanded={};
 let perfEdits=[];
+let selectMode=false, selectedRows=new Set(), dragRow=null;
 
 // ---- Toggle helpers ----
 function setToggle(btn){
@@ -438,7 +472,7 @@ function buildFilterSelects(){
   const prevP=fp.value;
   fp.innerHTML='<option value="">すべて</option>';
   perfs.filter(p=>(!fa||p['アーティスト名']===fa)&&(!ft||p['ツアー名']===ft)&&(!fv||p['開催地（都道府県）']===fv))
-    .forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=p['表示ラベル\n（例: 東京1日目 4/17(金)）'];if(p['公演ID']===prevP)o.selected=true;fp.appendChild(o);});
+    .forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=perfDisplayLabel(p);if(p['公演ID']===prevP)o.selected=true;fp.appendChild(o);});
 
   rebuild('d-artist',artists); rebuild('d-tour',tours);
 }
@@ -446,7 +480,7 @@ function buildFilterSelects(){
 function perfSelectOpts(selId, cur){
   const s=document.getElementById(selId);
   s.innerHTML='<option value="">― 公演を選択 ―</option>';
-  perfs.forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=`${p['アーティスト名']} / ${p['ツアー名']} / ${p['表示ラベル\n（例: 東京1日目 4/17(金)）']}`;if(p['公演ID']===cur)o.selected=true;s.appendChild(o);});
+  perfs.forEach(p=>{const o=document.createElement('option');o.value=p['公演ID'];o.textContent=`${p['アーティスト名']} / ${p['ツアー名']} / ${perfDisplayLabel(p)}`;if(p['公演ID']===cur)o.selected=true;s.appendChild(o);});
 }
 
 function groupSelectOpts(selId, perfId, cur){
@@ -486,7 +520,25 @@ function getChip(name){
 // ---- Helpers ----
 function getPerf(id){ return perfs.find(p=>p['公演ID']===id)||{}; }
 function getGroup(id){ return groups.find(g=>g['グループID']===id)||null; }
-function perfLabel(id){ const p=getPerf(id); return p['表示ラベル\n（例: 東京1日目 4/17(金)）']||id; }
+
+// No.18,19 公演ラベル動的生成
+function parseDateText(dt){
+  const m=(dt||'').match(/(\d{4})(\d{2})(\d{2})\((.)\)/);
+  if(!m)return null;
+  return {month:parseInt(m[2])+'',day:parseInt(m[3])+'',dow:m[4]};
+}
+function shortPref(p){ return (p||'').replace(/[都府県]$/,''); }
+function perfDisplayLabel(p){
+  const dt=parseDateText(p['公演日テキスト\n（例: 20260417(金)）']);
+  if(!dt) return p['表示ラベル\n（例: 東京1日目 4/17(金)）']||p['公演ID'];
+  return `${shortPref(p['開催地（都道府県）'])}_${dt.month}/${dt.day}(${dt.dow})`;
+}
+function perfCardLabel(p){
+  const dt=parseDateText(p['公演日テキスト\n（例: 20260417(金)）']);
+  if(!dt) return `${p['ツアー名']} ${p['表示ラベル\n（例: 東京1日目 4/17(金)）']}`;
+  return `${p['ツアー名']} ${p['開催地（都道府県）']} ${dt.month}/${dt.day}(${dt.dow})`;
+}
+function perfLabel(id){ return perfDisplayLabel(getPerf(id)); }
 
 function payHtml(t){
   if(t['チケットステータス']!=='支払前') return '';
@@ -568,22 +620,25 @@ function ticketCard(t, num, nested){
     <div class="card-meta">譲渡先: ${toHtml(t)}${!isPaid&&t['支払い者名義']!==t['アカウント名義']?` ・支払: ${t['支払い者名義']}`:''}${t['メモ']?` ・${t['メモ']}`:''}</div>
     ${payHtml(t)}`;
 
+  const selCb=selectMode?`<input type="checkbox" ${selectedRows.has(t._row)?'checked':''} onclick="event.stopPropagation();toggleSelect(${t._row})" style="width:16px;height:16px;flex-shrink:0;cursor:pointer">`:'';
+
   if(nested){
-    return `<div class="grp-ticket${tr?' transferred':''}" onclick="toggleExp('n${t._row}')">
-      ${topHtml}
-      ${isExp?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">${expandForm(t,true)}</div>`:''}
+    return `<div class="grp-ticket${tr?' transferred':''}" draggable="true" ondragstart="onDragStart(event,${t._row})" onclick="${selectMode?`toggleSelect(${t._row})`:`toggleExp('n${t._row}')`}">
+      <div class="cb-wrap">${selCb}${topHtml}</div>
+      ${isExp&&!selectMode?`<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px">${expandForm(t,true)}</div>`:''}
     </div>`;
   }
 
   const grp=t['連番グループID']?getGroup(t['連番グループID']):null;
-  return `<div class="card${tr?' transferred':''}">
-    <div class="card-header" onclick="toggleExp(${t._row})">
+  return `<div class="card${tr?' transferred':''}" draggable="true" ondragstart="onDragStart(event,${t._row})">
+    <div class="card-header" onclick="${selectMode?`toggleSelect(${t._row})`:`toggleExp(${t._row})`}">
+      ${selCb}
       <div class="card-main">
         ${topHtml}
         ${grp?`<div style="margin-top:3px"><span class="badge b-group">🔗 ${grp['グループ名']}</span></div>`:''}
       </div>
     </div>
-    ${isExp?`<div class="card-expand">${expandForm(t,false)}</div>`:''}
+    ${isExp&&!selectMode?`<div class="card-expand">${expandForm(t,false)}</div>`:''}
   </div>`;
 }
 
@@ -654,8 +709,8 @@ function renderTickets(){
     html+=`<div class="tree-event">
       <div class="tree-event-hdr" onclick="toggleEv('${pid}')">
         <span>🎵</span>
-        <span style="font-size:13px;font-weight:600">${perf['アーティスト名']} / ${perf['ツアー名']}</span>
-        <span style="font-size:12px;color:var(--text2)">${perf['表示ラベル\n（例: 東京1日目 4/17(金)）']}</span>
+        <span style="font-size:13px;font-weight:600">${perf['アーティスト名']}</span>
+        <span style="font-size:12px;color:var(--text2)">${perfCardLabel(perf)}</span>
         <span style="font-size:12px;color:var(--text3)">${pt.length}枚</span>
         ${statuses.map(s=>`<span class="badge b-${s}">${s}</span>`).join('')}
         <span class="chevron ${isOpen?'open':''}" style="margin-left:auto">▼</span>
@@ -672,7 +727,7 @@ function renderTickets(){
         const gf=[...new Set(gt.map(t=>t['資金回収ステータス']))];
         const gtr=[...new Set(gt.map(t=>t['譲渡ステータス']))];
         html+=`<div class="tree-group">
-          <div class="tree-group-hdr" onclick="toggleGrp('${gid}')">
+          <div class="tree-group-hdr" onclick="toggleGrp('${gid}')" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');dropOnGroup('${gid}')">
             <span style="color:var(--purple)">🔗</span>
             <span id="gn-${gid}" style="font-size:13px;font-weight:600">${grp['グループ名']}</span>
             <span style="font-size:12px;color:var(--text3)">${gt.length}枚</span>
@@ -690,6 +745,7 @@ function renderTickets(){
         </div>`;
       });
       pt.filter(t=>!usedRows.has(t._row)).forEach(t=>{html+=ticketCard(t,numMap[t._row],false);});
+      html+=`<div class="drop-zone" ondragover="event.preventDefault();this.classList.add('drag-over')" ondragleave="this.classList.remove('drag-over')" ondrop="event.preventDefault();this.classList.remove('drag-over');dropOnGroup('')">グループ外にドロップ</div>`;
       html+=`</div>`;
     }
     html+=`</div>`;
@@ -737,7 +793,7 @@ function renderDash(){
       const pct=won>0?Math.round(done/won*100):0;
       const fc=pct>=100?'':pct>=60?'warn':'danger';
       html+=`<tr>
-        <td><strong>${p['表示ラベル\n（例: 東京1日目 4/17(金)）']}</strong></td>
+        <td><strong>${perfDisplayLabel(p)}</strong></td>
         <td>${p['開催地（都道府県）']}</td>
         <td style="text-align:center"><span class="cpill cp-none">${total}</span></td>
         <td style="text-align:center"><span class="cpill cp-ok">${won}</span></td>
@@ -784,6 +840,123 @@ function saveAllExpanded(){
 }
 function toggleGrp(id){gExpanded[id]=gExpanded[id]===false?true:false;renderTickets();}
 function toggleEv(id){eExpanded[id]=eExpanded[id]===false?true:false;renderTickets();}
+
+// ---- Drag & Drop (No.5) ----
+function onDragStart(e,row){
+  dragRow=row;
+  e.dataTransfer.effectAllowed='move';
+  e.dataTransfer.setData('text/plain',row);
+}
+function dropOnGroup(gid){
+  if(dragRow===null)return;
+  const t=tickets.find(x=>x._row===dragRow);
+  if(!t)return;
+  if(t['連番グループID']===gid)return;
+  t['連番グループID']=gid;
+  renderTickets();
+  toast(gid?'グループに移動しました':'グループから外しました');
+  bgSync(()=>apiUpdate('チケット',t._row,ticketToRow(t)));
+  dragRow=null;
+}
+
+// ---- Multi-select (No.6) ----
+function toggleSelectMode(){
+  selectMode=!selectMode;
+  selectedRows.clear();
+  document.getElementById('btn-select-mode').classList.toggle('active',selectMode);
+  document.getElementById('select-bar').style.display=selectMode?'flex':'none';
+  renderTickets();
+}
+function toggleSelect(row){
+  if(selectedRows.has(row)) selectedRows.delete(row); else selectedRows.add(row);
+  document.getElementById('select-count').textContent=`${selectedRows.size}件選択中`;
+  renderTickets();
+}
+function groupSelected(){
+  if(!selectedRows.size){alert('チケットを選択してください');return;}
+  const sel=[...selectedRows].map(r=>tickets.find(x=>x._row===r)).filter(Boolean);
+  const perfIds=[...new Set(sel.map(t=>t['公演ID']))];
+  if(perfIds.length>1){alert('同じ公演のチケットのみグループ化できます');return;}
+  const pid=perfIds[0];
+  const existGroups=groups.filter(g=>g['紐付け公演ID']===pid);
+  let gid='';
+  if(existGroups.length){
+    const opts=existGroups.map((g,i)=>`${i+1}. ${g['グループ名']}`).join('\n');
+    const choice=prompt(`グループを選択（番号）または新規グループ名を入力:\n\n${opts}\n\n（空欄で新規作成）`);
+    if(choice===null)return;
+    const idx=parseInt(choice)-1;
+    if(idx>=0&&idx<existGroups.length){
+      gid=existGroups[idx]['グループID'];
+    } else {
+      const name=choice||`グループ ${Date.now().toString(36)}`;
+      const obj={'グループID':'g'+Date.now(),'グループ名':name,'紐付け公演ID':pid,'レシート管理No\n（発券情報管理より）':'','メモ':''};
+      gid=obj['グループID'];
+      obj._row=999;
+      groups.push(obj);
+      bgSync(()=>apiAppend('連番グループ',groupToRow(obj)));
+    }
+  } else {
+    const name=prompt('新規グループ名を入力:');
+    if(!name)return;
+    const obj={'グループID':'g'+Date.now(),'グループ名':name,'紐付け公演ID':pid,'レシート管理No\n（発券情報管理より）':'','メモ':''};
+    gid=obj['グループID'];
+    obj._row=999;
+    groups.push(obj);
+    bgSync(()=>apiAppend('連番グループ',groupToRow(obj)));
+  }
+  sel.forEach(t=>{
+    t['連番グループID']=gid;
+    bgSync(()=>apiUpdate('チケット',t._row,ticketToRow(t)));
+  });
+  toast(`${sel.length}枚をグループ化しました`);
+  toggleSelectMode();
+}
+
+// ---- Receipt reconciliation (No.7, 8) ----
+async function openReceipts(){
+  document.getElementById('rmodal').style.display='flex';
+  const body=document.getElementById('receipt-body');
+  body.innerHTML='<div class="loading"><div class="spinner"></div>読み込み中...</div>';
+  try{
+    const res=await fetch(`${GAS_URL}?action=readReceipts&sheet=レシート`);
+    const json=await res.json();
+    if(!json.ok) throw new Error(json.error||'レシートシートが見つかりません');
+    const [header,...rows]=json.data;
+    const receipts=rows.map(r=>{const o={};header.forEach((h,i)=>o[h]=r[i]??'');return o;});
+    renderReceipts(receipts);
+  }catch(e){
+    body.innerHTML=`<div class="empty">レシートデータの読み込みに失敗しました。<br>${e.message}<br><br><small>「レシート」シートをスプレッドシートに作成してください。</small></div>`;
+  }
+}
+function renderReceipts(receipts){
+  const body=document.getElementById('receipt-body');
+  const tReceipts=new Map();
+  tickets.forEach(t=>{
+    const rn=t['レシート管理No\n（単番のみ）'];
+    if(rn) tReceipts.set(rn,t);
+  });
+  groups.forEach(g=>{
+    const rn=g['レシート管理No\n（発券情報管理より）'];
+    if(rn) tReceipts.set(rn,g);
+  });
+  const matched=[], unmatched=[];
+  receipts.forEach(r=>{
+    const rn=r['レシート管理No']||r['管理No']||Object.values(r)[0];
+    if(tReceipts.has(rn)) matched.push({receipt:r,ticket:tReceipts.get(rn),no:rn});
+    else unmatched.push({receipt:r,no:rn});
+  });
+  let html=`<div style="margin-bottom:12px"><strong>照合結果:</strong> 一致 ${matched.length}件 / 不一致 ${unmatched.length}件</div>`;
+  if(matched.length){
+    html+=`<div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--green)">一致 (${matched.length})</div>`;
+    html+=matched.map(m=>`<div style="padding:6px 10px;background:var(--bg2);border-radius:var(--radius-sm);margin-bottom:4px;font-size:12px">No.${m.no} — ${m.ticket['アカウント名義']||m.ticket['グループ名']||'—'}</div>`).join('');
+  }
+  if(unmatched.length){
+    html+=`<div style="margin:12px 0 8px;font-size:12px;font-weight:600;color:var(--red)">未照合 (${unmatched.length})</div>`;
+    html+=unmatched.map(m=>`<div style="padding:6px 10px;background:#FFF5F5;border-radius:var(--radius-sm);margin-bottom:4px;font-size:12px">No.${m.no} — ${Object.values(m.receipt).slice(1,3).join(' / ')}</div>`).join('');
+  }
+  if(!receipts.length) html='<div class="empty">レシートデータがありません</div>';
+  body.innerHTML=html;
+}
 
 // ---- Add ticket modal ----
 function togglePayWrap(){
