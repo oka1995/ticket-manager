@@ -471,6 +471,7 @@ function expandForm(t, nested){
   </div>
   <div class="detail-actions">
     <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteTicket(${t._row})">削除</button>
+    <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();duplicateTicket(${t._row})">複製</button>
     <button class="btn btn-primary btn-sm" onclick="event.stopPropagation();saveInline(${t._row})">保存</button>
   </div>`;
 }
@@ -785,6 +786,18 @@ async function deleteTicket(rowIdx){
   await apiDelete('チケット', rowIdx);
   await loadAll();
   toast('削除しました');
+}
+
+async function duplicateTicket(rowIdx){
+  const t=tickets.find(x=>x._row===rowIdx);
+  if(!t)return;
+  const obj={};
+  TICKET_HEADERS.forEach(h=>obj[h]=t[h]??'');
+  obj['チケットID']='t'+Date.now();
+  obj['席番号/整理番号']='';
+  await apiAppend('チケット', ticketToRow(obj));
+  await loadAll();
+  toast('チケットを複製しました');
 }
 
 // ---- Group modal ----
