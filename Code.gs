@@ -20,6 +20,10 @@ const SHEET = {
   TICKET:  'チケット',
 };
 
+// 発券情報管理スプレッドシート
+const RECEIPT_SS_ID   = '1Mv0A4olKkpv33uuECycCUKsqDGJbbH_zbnDOCYYSk9c';
+const RECEIPT_SHEET   = '管理';
+
 // ヘッダー定義（シートが存在しない場合に自動作成）
 const HEADERS = {
   [SHEET.PERF]: [
@@ -68,16 +72,20 @@ function handle(e) {
       sheetName = e.parameter.sheet;
     }
 
-    // レシート照合アクション
+    // レシート照合アクション（発券情報管理スプレッドシートから読み込み）
     if (action === 'readReceipts') {
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      const sh = ss.getSheetByName('レシート');
-      if (!sh) {
-        out.setContent(JSON.stringify({ ok: false, error: 'レシートシートが見つかりません' }));
-        return out;
+      try {
+        const rss = SpreadsheetApp.openById(RECEIPT_SS_ID);
+        const sh  = rss.getSheetByName(RECEIPT_SHEET);
+        if (!sh) {
+          out.setContent(JSON.stringify({ ok: false, error: `「${RECEIPT_SHEET}」シートが見つかりません` }));
+          return out;
+        }
+        const data = sh.getDataRange().getValues();
+        out.setContent(JSON.stringify({ ok: true, data }));
+      } catch(err) {
+        out.setContent(JSON.stringify({ ok: false, error: '発券情報管理への接続に失敗しました: ' + err.message }));
       }
-      const data = sh.getDataRange().getValues();
-      out.setContent(JSON.stringify({ ok: true, data }));
       return out;
     }
 
