@@ -345,8 +345,11 @@ input:focus,select:focus{outline:none;border-color:#185FA5;box-shadow:0 0 0 3px 
 
 <!-- Receipt Modal -->
 <div id="rmodal" style="display:none" class="modal-overlay">
-<div class="modal" style="max-width:700px">
-  <h2>レシート照合</h2>
+<div class="modal" style="max-width:860px;width:100%">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem">
+    <h2 style="margin:0">レシート照合 <span style="font-size:12px;font-weight:400;color:var(--text2)">（発券情報管理）</span></h2>
+    <button class="btn btn-secondary btn-sm" onclick="openReceipts()">再読み込み</button>
+  </div>
   <div id="receipt-body"><div class="loading"><div class="spinner"></div>読み込み中...</div></div>
   <div class="mactions">
     <button class="btn btn-secondary" onclick="document.getElementById('rmodal').style.display='none'">閉じる</button>
@@ -913,50 +916,182 @@ function groupSelected(){
 }
 
 // ---- Receipt reconciliation (No.7, 8) ----
+let cachedReceipts=null;
+
 async function openReceipts(){
   document.getElementById('rmodal').style.display='flex';
   const body=document.getElementById('receipt-body');
-  body.innerHTML='<div class="loading"><div class="spinner"></div>読み込み中...</div>';
+  body.innerHTML='<div class="loading"><div class="spinner"></div>発券情報管理を読み込み中...</div>';
   try{
-    const res=await fetch(`${GAS_URL}?action=readReceipts&sheet=レシート`);
+    const res=await fetch(`${GAS_URL}?action=readReceipts`);
     const json=await res.json();
-    if(!json.ok) throw new Error(json.error||'レシートシートが見つかりません');
+    if(!json.ok) throw new Error(json.error||'読み込みに失敗しました');
     const [header,...rows]=json.data;
-    const receipts=rows.map(r=>{const o={};header.forEach((h,i)=>o[h]=r[i]??'');return o;});
+    const receipts=rows
+      .map(r=>{const o={};header.forEach((h,i)=>o[h]=String(r[i]??'').trim());return o;})
+      .filter(r=>r['管理No']);
+    cachedReceipts=receipts;
     renderReceipts(receipts);
   }catch(e){
-    body.innerHTML=`<div class="empty">レシートデータの読み込みに失敗しました。<br>${e.message}<br><br><small>「レシート」シートをスプレッドシートに作成してください。</small></div>`;
+    body.innerHTML=`<div class="empty">発券情報管理の読み込みに失敗しました。<br><small>${e.message}</small></div>`;
   }
 }
+
 function renderReceipts(receipts){
   const body=document.getElementById('receipt-body');
-  const tReceipts=new Map();
+
+  // 紐付けマップ: 管理No -> {type, item}
+  const linkedMap=new Map();
   tickets.forEach(t=>{
-    const rn=t['レシート管理No\n（単番のみ）'];
-    if(rn) tReceipts.set(rn,t);
+    const rn=(t['レシート管理No\n（単番のみ）']||'').trim();
+    if(rn) linkedMap.set(rn,{type:'ticket',item:t});
   });
   groups.forEach(g=>{
-    const rn=g['レシート管理No\n（発券情報管理より）'];
-    if(rn) tReceipts.set(rn,g);
+    const rn=(g['レシート管理No\n（発券情報管理より）']||'').trim();
+    if(rn) linkedMap.set(rn,{type:'group',item:g});
   });
-  const matched=[], unmatched=[];
+
+  // 公演日テキスト -> 公演
+  const perfByDate=new Map();
+  perfs.forEach(p=>{
+    const dt=p['公演日テキスト\n（例: 20260417(金)）'];
+    if(dt) perfByDate.set(dt,p);
+  });
+
+  function getUnitsForDate(dateText){
+    const perf=perfByDate.get(dateText);
+    if(!perf) return {standalone:[],grps:[]};
+    const pid=perf['公演ID'];
+    return {
+      standalone:tickets.filter(t=>t['公演ID']===pid&&!t['連番グループID']),
+      grps:groups.filter(g=>g['紐付け公演ID']===pid),
+    };
+  }
+
+  // レシートを公演日でグループ化
+  const receiptsByDate=new Map();
   receipts.forEach(r=>{
-    const rn=r['レシート管理No']||r['管理No']||Object.values(r)[0];
-    if(tReceipts.has(rn)) matched.push({receipt:r,ticket:tReceipts.get(rn),no:rn});
-    else unmatched.push({receipt:r,no:rn});
+    const dt=r['公演日']||'';
+    if(!receiptsByDate.has(dt)) receiptsByDate.set(dt,[]);
+    receiptsByDate.get(dt).push(r);
   });
-  let html=`<div style="margin-bottom:12px"><strong>照合結果:</strong> 一致 ${matched.length}件 / 不一致 ${unmatched.length}件</div>`;
-  if(matched.length){
-    html+=`<div style="margin-bottom:8px;font-size:12px;font-weight:600;color:var(--green)">一致 (${matched.length})</div>`;
-    html+=matched.map(m=>`<div style="padding:6px 10px;background:var(--bg2);border-radius:var(--radius-sm);margin-bottom:4px;font-size:12px">No.${m.no} — ${m.ticket['アカウント名義']||m.ticket['グループ名']||'—'}</div>`).join('');
-  }
-  if(unmatched.length){
-    html+=`<div style="margin:12px 0 8px;font-size:12px;font-weight:600;color:var(--red)">未照合 (${unmatched.length})</div>`;
-    html+=unmatched.map(m=>`<div style="padding:6px 10px;background:#FFF5F5;border-radius:var(--radius-sm);margin-bottom:4px;font-size:12px">No.${m.no} — ${Object.values(m.receipt).slice(1,3).join(' / ')}</div>`).join('');
-  }
+
+  // 集計
+  let totalReceipts=receipts.length,totalUnits=0,totalSingle=0,totalGrp=0;
+  [...receiptsByDate.keys()].forEach(dt=>{
+    const {standalone,grps}=getUnitsForDate(dt);
+    totalSingle+=standalone.length; totalGrp+=grps.length;
+    totalUnits+=standalone.length+grps.length;
+  });
+  const ok=totalReceipts===totalUnits;
+
+  let html=`<div style="display:flex;gap:16px;align-items:center;padding:10px 14px;border-radius:var(--radius-sm);background:${ok?'#EAF3DE':'#FCEBEB'};margin-bottom:16px">
+    <span style="font-size:13px;font-weight:600;color:${ok?'#3B6D11':'#A32D2D'}">${ok?'✓ 件数一致':'✗ 件数不一致'}</span>
+    <span style="font-size:12px;color:var(--text2)">レシート <strong>${totalReceipts}件</strong> ／ 申込単位 <strong>${totalUnits}件</strong>（単番 ${totalSingle} + 連番グループ ${totalGrp}）</span>
+  </div>`;
+
+  const sortedDates=[...receiptsByDate.keys()].sort();
+  sortedDates.forEach(dt=>{
+    const rList=receiptsByDate.get(dt);
+    const {standalone,grps}=getUnitsForDate(dt);
+    const unitCount=standalone.length+grps.length;
+    const dateOk=rList.length===unitCount;
+    html+=`<div style="margin-bottom:20px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+        <span style="font-size:13px;font-weight:600">${dt}</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:100px;background:${dateOk?'#EAF3DE':'#FCEBEB'};color:${dateOk?'#3B6D11':'#A32D2D'}">レシート ${rList.length} / 単位 ${unitCount}</span>
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:var(--bg2);border-bottom:2px solid var(--border)">
+          <th style="padding:6px 10px;text-align:left;font-weight:600;color:var(--text2);white-space:nowrap">管理No</th>
+          <th style="padding:6px 10px;text-align:left;font-weight:600;color:var(--text2)">状態</th>
+          <th style="padding:6px 10px;text-align:left;font-weight:600;color:var(--text2)">ファイル</th>
+          <th style="padding:6px 10px;text-align:left;font-weight:600;color:var(--text2)">紐付け先</th>
+          <th style="padding:6px 10px;min-width:160px"></th>
+        </tr></thead><tbody>`;
+    rList.forEach(r=>{
+      const no=r['管理No'];
+      const linked=linkedMap.get(no);
+      const linkLabel=linked?(linked.type==='ticket'?`単番: ${linked.item['アカウント名義']}`:`連番: ${linked.item['グループ名']}`):'—';
+      const linkColor=linked?'#3B6D11':'var(--text3)';
+      const fname=(r['ファイル名']||'').replace(/__/g,'').trim();
+      const fnameShort=fname.length>35?fname.slice(0,35)+'…':fname;
+      const unlinkedSingle=standalone.filter(t=>!(t['レシート管理No\n（単番のみ）']||'').trim());
+      const unlinkedGrps=grps.filter(g=>!(g['レシート管理No\n（発券情報管理より）']||'').trim());
+      html+=`<tr style="border-bottom:1px solid var(--border)">
+        <td style="padding:8px 10px;font-weight:700">No.${no}</td>
+        <td style="padding:8px 10px">${r['状態']||''}</td>
+        <td style="padding:8px 10px;color:var(--text2)">${fnameShort}</td>
+        <td style="padding:8px 10px;color:${linkColor}">${linkLabel}</td>
+        <td style="padding:8px 10px">
+          ${linked
+            ?`<button class="btn btn-secondary btn-sm" onclick="unlinkReceipt('${no}','${linked.type}')">解除</button>`
+            :buildLinkSelect(no,unlinkedSingle,unlinkedGrps)
+          }
+        </td>
+      </tr>`;
+    });
+    html+=`</tbody></table></div>`;
+  });
+
   if(!receipts.length) html='<div class="empty">レシートデータがありません</div>';
   body.innerHTML=html;
 }
+
+function buildLinkSelect(no,standalone,grps){
+  if(!standalone.length&&!grps.length) return '<span style="font-size:11px;color:var(--text3)">紐付け先なし</span>';
+  let opts='<option value="">― 紐付け先を選択 ―</option>';
+  if(standalone.length){
+    opts+='<optgroup label="単番">';
+    opts+=standalone.map(t=>`<option value="ticket:${t._row}">${t['アカウント名義']}${t['席番号/整理番号']?' / '+t['席番号/整理番号']:''}</option>`).join('');
+    opts+='</optgroup>';
+  }
+  if(grps.length){
+    opts+='<optgroup label="連番グループ">';
+    opts+=grps.map(g=>`<option value="group:${g._row}">${g['グループ名']}</option>`).join('');
+    opts+='</optgroup>';
+  }
+  return `<select style="height:28px;font-size:11px;min-width:150px" onchange="linkReceipt('${no}',this.value);this.value=''">
+    ${opts}
+  </select>`;
+}
+
+function linkReceipt(no,val){
+  if(!val)return;
+  const [type,row]=val.split(':');
+  const rowIdx=parseInt(row);
+  if(type==='ticket'){
+    const t=tickets.find(x=>x._row===rowIdx);
+    if(!t)return;
+    t['レシート管理No\n（単番のみ）']=no;
+    bgSync(()=>apiUpdate('チケット',rowIdx,ticketToRow(t)));
+  } else {
+    const g=groups.find(x=>x._row===rowIdx);
+    if(!g)return;
+    g['レシート管理No\n（発券情報管理より）']=no;
+    bgSync(()=>apiUpdate('連番グループ',rowIdx,groupToRow(g)));
+  }
+  toast(`管理No.${no} を紐付けました`);
+  if(cachedReceipts) renderReceipts(cachedReceipts);
+}
+
+function unlinkReceipt(no,type){
+  if(!confirm(`管理No.${no} の紐付けを解除しますか？`))return;
+  if(type==='ticket'){
+    const t=tickets.find(x=>(x['レシート管理No\n（単番のみ）']||'').trim()===no);
+    if(!t)return;
+    t['レシート管理No\n（単番のみ）']='';
+    bgSync(()=>apiUpdate('チケット',t._row,ticketToRow(t)));
+  } else {
+    const g=groups.find(x=>(x['レシート管理No\n（発券情報管理より）']||'').trim()===no);
+    if(!g)return;
+    g['レシート管理No\n（発券情報管理より）']='';
+    bgSync(()=>apiUpdate('連番グループ',g._row,groupToRow(g)));
+  }
+  toast(`管理No.${no} の紐付けを解除しました`);
+  if(cachedReceipts) renderReceipts(cachedReceipts);
+}
+
 
 // ---- Add ticket modal ----
 function togglePayWrap(){
